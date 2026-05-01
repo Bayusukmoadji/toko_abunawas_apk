@@ -402,11 +402,14 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
             ),
             pw.SizedBox(height: 4),
             pw.Text(
-                'Stok Masuk menunjukkan transaksi penambahan stok ke dalam sistem.'),
+              'Stok Masuk menunjukkan transaksi penambahan stok ke dalam sistem.',
+            ),
             pw.Text(
-                'Stok Keluar menunjukkan transaksi pengurangan stok berdasarkan batch.'),
+              'Stok Keluar menunjukkan transaksi pengurangan stok berdasarkan batch.',
+            ),
             pw.Text(
-                'Selisih stok periode ini dihitung dari total stok masuk dikurangi total stok keluar.'),
+              'Selisih stok periode ini dihitung dari total stok masuk dikurangi total stok keluar.',
+            ),
             pw.SizedBox(height: 20),
             pw.Text(
               'Laporan ini dihasilkan secara otomatis oleh Aplikasi Manajemen Stok Toko Beras Abunawas.',
@@ -443,29 +446,85 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
+  Widget _buildHeaderCard() {
+    return const Card(
+      color: Color(0xFF2E7D32),
+      child: Padding(
+        padding: EdgeInsets.all(18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.white24,
+              child: Icon(
+                Icons.receipt_long,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Riwayat Transaksi',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 21,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Pantau transaksi stok masuk dan stok keluar berdasarkan produk serta periode tertentu.',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFilterSection() {
     final selectedProductName = _getSelectedProductName();
     final selectedPeriodText = _getSelectedPeriodText();
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Filter Laporan',
+              'Filter Transaksi',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 6),
+            const Text(
+              'Gunakan filter untuk melihat transaksi berdasarkan produk/merk dan periode tertentu.',
+              style: TextStyle(
+                color: Colors.black54,
+                fontSize: 13,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 18),
             DropdownButtonFormField<String>(
               value: _selectedProductId,
+              isExpanded: true,
               decoration: const InputDecoration(
-                labelText: 'Filter Produk / Merk Beras',
-                border: OutlineInputBorder(),
+                labelText: 'Produk / Merk Beras',
+                prefixIcon: Icon(Icons.rice_bowl_outlined),
               ),
               items: [
                 const DropdownMenuItem<String>(
@@ -476,7 +535,10 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                   (product) {
                     return DropdownMenuItem<String>(
                       value: product.id,
-                      child: Text(product.name),
+                      child: Text(
+                        product.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     );
                   },
                 ),
@@ -503,50 +565,61 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
               icon: const Icon(Icons.refresh),
               label: const Text('Reset Filter'),
             ),
-            const SizedBox(height: 12),
-            Text('Produk dipilih: $selectedProductName'),
-            Text('Periode dipilih: $selectedPeriodText'),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF6F8F6),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Colors.grey.shade200,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSmallInfoRow(
+                    icon: Icons.inventory_2_outlined,
+                    text: 'Produk dipilih: $selectedProductName',
+                  ),
+                  const SizedBox(height: 6),
+                  _buildSmallInfoRow(
+                    icon: Icons.calendar_month_outlined,
+                    text: 'Periode dipilih: $selectedPeriodText',
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTransactionCard(TransactionModel transaction) {
-    final transactionDate = transaction.createdAt.toDate();
-    final color = _getTransactionColor(transaction.type);
-
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.15),
-          child: Icon(
-            _getTransactionIcon(transaction.type),
-            color: color,
+  Widget _buildSmallInfoRow({
+    required IconData icon,
+    required String text,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 17,
+          color: Colors.black45,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12.8,
+              color: Colors.black87,
+              height: 1.3,
+            ),
           ),
         ),
-        title: Text(
-          '${_getTransactionTypeText(transaction.type)} - ${transaction.productName}',
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Tanggal: ${_formatDateTime(transactionDate)}'),
-              Text('Kode Batch: ${transaction.batchCode}'),
-              Text('Jumlah: ${transaction.qty} ${transaction.unit}'),
-              Text('Dilakukan oleh: ${transaction.performedByName}'),
-              Text(
-                'Catatan: ${transaction.notes.isEmpty ? '-' : transaction.notes}',
-              ),
-            ],
-          ),
-        ),
-      ),
+      ],
     );
   }
 
@@ -557,7 +630,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -568,14 +641,39 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
-            Text('Jumlah transaksi: ${transactions.length}'),
-            Text('Total stok masuk: $totalStockIn karung'),
-            Text('Total stok keluar: $totalStockOut karung'),
-            Text('Selisih stok periode ini: $netStock karung'),
+            const SizedBox(height: 12),
+            _buildSummaryRow(
+              icon: Icons.receipt_long,
+              label: 'Jumlah Transaksi',
+              value: '${transactions.length}',
+              color: Colors.blue,
+            ),
+            _buildSummaryRow(
+              icon: Icons.arrow_downward,
+              label: 'Total Stok Masuk',
+              value: '$totalStockIn karung',
+              color: Colors.green,
+            ),
+            _buildSummaryRow(
+              icon: Icons.arrow_upward,
+              label: 'Total Stok Keluar',
+              value: '$totalStockOut karung',
+              color: Colors.red,
+            ),
+            _buildSummaryRow(
+              icon: Icons.compare_arrows,
+              label: 'Selisih Periode',
+              value: '$netStock karung',
+              color: netStock >= 0 ? Colors.green : Colors.red,
+            ),
             const SizedBox(height: 8),
             const Text(
               'Catatan: ringkasan ini mengikuti filter produk dan periode yang dipilih.',
+              style: TextStyle(
+                color: Colors.black54,
+                fontSize: 12.5,
+                height: 1.3,
+              ),
             ),
           ],
         ),
@@ -583,13 +681,40 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildEmptyFilteredResult() {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Text(
-          'Tidak ada transaksi yang sesuai dengan filter yang dipilih.',
-        ),
+  Widget _buildSummaryRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              color: color,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -612,6 +737,247 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
+  Widget _buildTransactionCard(TransactionModel transaction) {
+    final transactionDate = transaction.createdAt.toDate();
+    final color = _getTransactionColor(transaction.type);
+    final typeText = _getTransactionTypeText(transaction.type);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              backgroundColor: color.withOpacity(0.14),
+              child: Icon(
+                _getTransactionIcon(transaction.type),
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      _buildTypeChip(
+                        text: typeText,
+                        color: color,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    transaction.productName,
+                    style: const TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildTransactionInfo(
+                    icon: Icons.calendar_month_outlined,
+                    text: 'Tanggal: ${_formatDateTime(transactionDate)}',
+                  ),
+                  _buildTransactionInfo(
+                    icon: Icons.qr_code_2,
+                    text: 'Kode Batch: ${transaction.batchCode}',
+                  ),
+                  _buildTransactionInfo(
+                    icon: Icons.inventory_2_outlined,
+                    text: 'Jumlah: ${transaction.qty} ${transaction.unit}',
+                  ),
+                  _buildTransactionInfo(
+                    icon: Icons.person_outline,
+                    text: 'Dilakukan oleh: ${transaction.performedByName}',
+                  ),
+                  _buildTransactionInfo(
+                    icon: Icons.notes_outlined,
+                    text:
+                        'Catatan: ${transaction.notes.isEmpty ? '-' : transaction.notes}',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypeChip({
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: color.withOpacity(0.35),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionInfo({
+    required IconData icon,
+    required String text,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            icon,
+            size: 17,
+            color: Colors.black45,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.black87,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyFilteredResult() {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.search_off,
+              color: Colors.orange,
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Tidak ada transaksi yang sesuai dengan filter yang dipilih.',
+                style: TextStyle(
+                  color: Colors.black87,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyTransactionResult() {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.receipt_long,
+              color: Colors.grey,
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Belum ada riwayat transaksi.',
+                style: TextStyle(
+                  color: Colors.black87,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return const Center(
+      child: CircularProgressIndicator(),
+    );
+  }
+
+  Widget _buildErrorState(Object? error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Text(
+              'Gagal memuat riwayat transaksi: $error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.red,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionList({
+    required List<TransactionModel> allTransactions,
+    required List<TransactionModel> filteredTransactions,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Daftar Transaksi',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Transaksi yang tampil mengikuti filter produk dan periode yang dipilih.',
+          style: TextStyle(
+            color: Colors.black54,
+            fontSize: 13,
+            height: 1.3,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (allTransactions.isEmpty)
+          _buildEmptyTransactionResult()
+        else if (filteredTransactions.isEmpty)
+          _buildEmptyFilteredResult()
+        else
+          ...filteredTransactions.map(_buildTransactionCard),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -623,52 +989,40 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting ||
               _isLoadingProducts) {
-            return const Center(child: CircularProgressIndicator());
+            return _buildLoadingState();
           }
 
           if (snapshot.hasError) {
-            return Center(
-              child: Text('Gagal memuat riwayat transaksi: ${snapshot.error}'),
-            );
+            return _buildErrorState(snapshot.error);
           }
 
           final allTransactions = snapshot.data ?? [];
           final filteredTransactions = _filterTransactions(allTransactions);
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 600),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildFilterSection(),
-                    const SizedBox(height: 16),
-                    _buildSummary(filteredTransactions),
-                    const SizedBox(height: 12),
-                    _buildGeneratePdfButton(filteredTransactions),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Daftar Transaksi',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 620),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildHeaderCard(),
+                      const SizedBox(height: 12),
+                      _buildFilterSection(),
+                      const SizedBox(height: 12),
+                      _buildSummary(filteredTransactions),
+                      const SizedBox(height: 12),
+                      _buildGeneratePdfButton(filteredTransactions),
+                      const SizedBox(height: 20),
+                      _buildTransactionList(
+                        allTransactions: allTransactions,
+                        filteredTransactions: filteredTransactions,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    if (allTransactions.isEmpty)
-                      const Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text('Belum ada riwayat transaksi.'),
-                        ),
-                      )
-                    else if (filteredTransactions.isEmpty)
-                      _buildEmptyFilteredResult()
-                    else
-                      ...filteredTransactions.map(_buildTransactionCard),
-                  ],
+                      const SizedBox(height: 12),
+                    ],
+                  ),
                 ),
               ),
             ),

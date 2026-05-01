@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "554054643915",
+    "project_id": "stok-abunawas",
+    "storage_bucket": "stok-abunawas.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:554054643915:android:cf4f54c02cfc5527e32b4e",
+        "android_client_info": {
+          "package_name": "com.example.stok_abunawas"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDFJJNdnxdZZflNpl_0gXUEm5v9fUxTnp4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

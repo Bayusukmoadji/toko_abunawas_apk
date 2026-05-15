@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../data/models/app_user_model.dart';
 import '../../data/models/product_model.dart';
@@ -19,7 +20,6 @@ class StockInPage extends StatefulWidget {
 }
 
 class _StockInPageState extends State<StockInPage> {
-  final _formKey = GlobalKey<FormState>();
   final _qtyController = TextEditingController();
   final _locationController = TextEditingController();
   final _notesController = TextEditingController();
@@ -34,6 +34,39 @@ class _StockInPageState extends State<StockInPage> {
 
   bool _isLoadingProducts = true;
   bool _isSubmitting = false;
+
+  // --- STATE UNTUK VALIDASI KUSTOM (ERROR DI SAMPING) ---
+  bool _hasErrorProduct = false;
+  bool _hasErrorQty = false;
+  bool _hasErrorLocation = false;
+
+  // --- KUNCIAN PARAMETER VISUAL ---
+
+  final BoxShadow figmaStrictShadow = BoxShadow(
+    color: Colors.black.withOpacity(0.25),
+    offset: const Offset(3.0, 3.0),
+    blurRadius: 5.0,
+    spreadRadius: -1.0,
+  );
+
+  final BoxShadow cardFormShadow = BoxShadow(
+    color: Colors.black.withOpacity(0.32),
+    offset: const Offset(1, 2),
+    blurRadius: 4,
+  );
+
+  final LinearGradient primaryGradient = const LinearGradient(
+    colors: [Color(0xFF84E977), Color(0xFF038E1B), Color(0xFF015816)],
+    stops: [0.0, 0.5, 1.0],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  final TextStyle fieldTextStyle = const TextStyle(
+    color: Color(0xFF015816),
+    fontWeight: FontWeight.w600,
+    fontSize: 13.5,
+  );
 
   @override
   void initState() {
@@ -52,72 +85,69 @@ class _StockInPageState extends State<StockInPage> {
   Future<void> _loadProducts() async {
     try {
       final products = await _productRepository.getActiveProducts();
-
       if (!mounted) return;
-
       setState(() {
         _products = products;
         _isLoadingProducts = false;
       });
     } catch (e) {
       if (!mounted) return;
-
-      setState(() {
-        _isLoadingProducts = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal memuat produk: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      setState(() => _isLoadingProducts = false);
     }
   }
 
   String _formatDate(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final year = date.year.toString();
-
-    return '$day/$month/$year';
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
+  // --- CUSTOM DATE PICKER THEME (GLASSY & GRADIENT) ---
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2024),
       lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF038E1B),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF015816),
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFF015816),
+              ),
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
-
-    if (picked != null) {
+    if (picked != null && picked != _selectedDate) {
       setState(() {
         _selectedDate = picked;
       });
     }
   }
 
+  // --- LOGIKA SIMPAN & ALERT ---
   Future<void> _saveStockIn() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    if (_selectedProduct == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Silakan pilih produk terlebih dahulu.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
+    // 1. Validasi Manual
     setState(() {
-      _isSubmitting = true;
+      _hasErrorProduct = _selectedProduct == null;
+      _hasErrorQty = _qtyController.text.trim().isEmpty;
+      _hasErrorLocation = _locationController.text.trim().isEmpty;
     });
+
+    // Cegah proses jika ada error
+    if (_hasErrorProduct || _hasErrorQty || _hasErrorLocation) return;
+
+    setState(() => _isSubmitting = true);
 
     try {
       final qty = int.parse(_qtyController.text.trim());
-
       final batchResult = await _batchRepository.createBatch(
         productId: _selectedProduct!.id,
         productName: _selectedProduct!.name,
@@ -131,10 +161,7 @@ class _StockInPageState extends State<StockInPage> {
       );
 
       await _productRepository.increaseTotalStock(
-        productId: _selectedProduct!.id,
-        qty: qty,
-      );
-
+          productId: _selectedProduct!.id, qty: qty);
       await _transactionRepository.createStockInTransaction(
         productId: _selectedProduct!.id,
         productName: _selectedProduct!.name,
@@ -149,438 +176,396 @@ class _StockInPageState extends State<StockInPage> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Stok masuk berhasil disimpan dengan kode ${batchResult['batchCode']}.',
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-      _formKey.currentState!.reset();
+      // Bersihkan Form
       _qtyController.clear();
       _locationController.clear();
       _notesController.clear();
-
       setState(() {
         _selectedProduct = null;
         _selectedDate = DateTime.now();
       });
-    } catch (e) {
-      if (!mounted) return;
 
+      // 2. Tampilkan Alert Sukses
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan stok masuk: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
-    }
-  }
-
-  Widget _buildHeaderCard(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: primaryColor,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: Colors.white24,
-            child: Icon(
-              Icons.add_box_outlined,
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-          SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Stok Masuk',
+          content: Row(
+            children: const [
+              Icon(Icons.check_circle_outline, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Stok berhasil ditambahkan!',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 21,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 5),
-                Text(
-                  'Catat stok beras yang masuk ke gudang, buat batch, dan hasilkan QR Code otomatis.',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoNote() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFF2E7D32).withOpacity(0.18),
-        ),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.info_outline,
-            color: Color(0xFF2E7D32),
-            size: 22,
-          ),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Setiap stok masuk akan dibuat sebagai batch baru. Pada sistem ini, satuan beras adalah karung dengan asumsi 1 karung = 50 kg.',
-              style: TextStyle(
-                fontSize: 12.5,
-                color: Colors.black87,
-                height: 1.35,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSelectedProductInfo() {
-    final product = _selectedProduct;
-
-    if (product == null) {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.blue.withOpacity(0.15),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.inventory_2_outlined,
-            color: Colors.blue,
-            size: 22,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Kode: ${product.code}',
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: Colors.black54,
-                  ),
-                ),
-                Text(
-                  'Stok saat ini: ${product.totalStock} ${product.unit}',
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: Colors.black54,
-                  ),
-                ),
-                Text(
-                  'Minimum stok: ${product.minimumStock} ${product.unit}',
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: Colors.black54,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFormCard(BuildContext context) {
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Form Input Stok Masuk',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Lengkapi data produk, jumlah stok, lokasi penyimpanan, dan tanggal masuk.',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 20),
-              DropdownButtonFormField<ProductModel>(
-                value: _selectedProduct,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Pilih Produk',
-                  prefixIcon: Icon(Icons.rice_bowl_outlined),
-                ),
-                items: _products.map((product) {
-                  return DropdownMenuItem<ProductModel>(
-                    value: product,
-                    child: Text(
-                      product.name,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedProduct = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null) {
-                    return 'Produk harus dipilih';
-                  }
-                  return null;
-                },
-              ),
-              _buildSelectedProductInfo(),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _qtyController,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Jumlah Stok Masuk',
-                  hintText: 'Contoh: 10',
-                  prefixIcon: Icon(Icons.numbers),
-                  suffixText: 'karung',
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Jumlah tidak boleh kosong';
-                  }
-
-                  final qty = int.tryParse(value.trim());
-
-                  if (qty == null || qty <= 0) {
-                    return 'Jumlah harus berupa angka lebih dari 0';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _locationController,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Lokasi Batch di Gudang',
-                  hintText: 'Contoh: Rak A1 / Tumpukan Depan',
-                  prefixIcon: Icon(Icons.location_on_outlined),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Lokasi batch tidak boleh kosong';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: _pickDate,
-                borderRadius: BorderRadius.circular(14),
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Tanggal Masuk',
-                    prefixIcon: Icon(Icons.calendar_month_outlined),
-                  ),
-                  child: Text(
-                    _formatDate(_selectedDate),
-                    style: const TextStyle(
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Catatan',
-                  hintText: 'Opsional',
-                  prefixIcon: Icon(Icons.notes_outlined),
-                  alignLabelWithHint: true,
-                ),
-              ),
-              const SizedBox(height: 22),
-              SizedBox(
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _isSubmitting ? null : _saveStockIn,
-                  icon: _isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : const Icon(Icons.save_outlined),
-                  label: Text(
-                    _isSubmitting ? 'Menyimpan...' : 'Simpan Stok Masuk',
-                  ),
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14),
                 ),
               ),
             ],
           ),
+          backgroundColor: const Color(0xFF038E1B), // Warna hijau tema
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
+          duration: const Duration(seconds: 3),
         ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  Widget _buildSvgWrapper(
+      {required String svgPath, required Widget child, double height = 48}) {
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(
+            child: SvgPicture.asset(
+              svgPath,
+              fit: BoxFit.fill,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: child,
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildEmptyProductState() {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Stok Masuk'),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.inventory_2_outlined,
-                    size: 54,
-                    color: Colors.grey.shade500,
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Belum Ada Produk Aktif',
-                    style: TextStyle(
-                      fontSize: 18,
+  // --- KUSTOMISASI DEKORASI DENGAN ALERT DI SAMPING ---
+  InputDecoration _customFieldDecoration(String hint,
+      {Widget? suffixIcon, String? suffixText, bool hasError = false}) {
+    Widget? combinedSuffix;
+
+    // Gabungkan Teks Error, Suffix Text (karung), dan Suffix Icon (dropdown/kalender) menjadi satu baris sejajar
+    if (hasError || suffixIcon != null || suffixText != null) {
+      combinedSuffix = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasError)
+            const Padding(
+              padding: EdgeInsets.only(right: 12.0),
+              child: Text('Wajib isi *',
+                  style: TextStyle(
+                      color: Colors.red,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Tambahkan data produk aktif terlebih dahulu di Firestore agar dapat melakukan input stok masuk.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.black54,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  OutlinedButton.icon(
-                    onPressed: _loadProducts,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Muat Ulang'),
-                  ),
-                ],
-              ),
+                      fontStyle: FontStyle.italic)),
             ),
-          ),
-        ),
-      ),
+          if (suffixText != null)
+            Padding(
+              padding: EdgeInsets.only(right: suffixIcon != null ? 8.0 : 0),
+              child: Text(suffixText,
+                  style: fieldTextStyle.copyWith(
+                      fontSize: 13, color: const Color(0xFF015816))),
+            ),
+          if (suffixIcon != null) suffixIcon,
+        ],
+      );
+    }
+
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: fieldTextStyle.copyWith(
+          color: hasError
+              ? Colors.red.withOpacity(0.7)
+              : const Color(0xFF015816).withOpacity(0.5)),
+      contentPadding: EdgeInsets.zero,
+      border: InputBorder.none,
+      suffixIcon: combinedSuffix != null
+          ? Padding(
+              padding: const EdgeInsets.only(right: 0), child: combinedSuffix)
+          : null,
+      suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoadingProducts) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Stok Masuk'),
-        ),
-        body: const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    if (_products.isEmpty) {
-      return _buildEmptyProductState();
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Stok Masuk'),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildHeaderCard(context),
-                  const SizedBox(height: 14),
-                  _buildInfoNote(),
-                  const SizedBox(height: 14),
-                  _buildFormCard(context),
-                  const SizedBox(height: 12),
-                ],
+      backgroundColor: const Color(0xFFF5F5F5),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // --- HEADER ---
+            Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.bottomCenter,
+              children: [
+                Container(
+                  height: 112,
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 40),
+                  decoration: BoxDecoration(
+                    gradient: primaryGradient,
+                    borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(32)),
+                    boxShadow: [figmaStrictShadow],
+                  ),
+                  child: SafeArea(
+                    child: Transform.translate(
+                      offset: const Offset(0, -15),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.keyboard_double_arrow_left,
+                                color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          const Expanded(
+                            child: Text(
+                              'STOK MASUK',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(width: 48),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 5,
+                  left: 16,
+                  right: 16,
+                  child: SvgPicture.asset(
+                    'assets/stockin/info.svg',
+                    height: 72,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            // --- FORM ---
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [cardFormShadow],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Form Input Stok Masuk',
+                      style:
+                          TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Lengkapi data produk, jumlah stok, lokasi penyimpanan,\ndan tanggal masuk.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.black.withOpacity(0.6),
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // PILIH PRODUK
+                    _buildSvgWrapper(
+                      svgPath: 'assets/stockin/recm.svg',
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<ProductModel>(
+                          isExpanded: true,
+                          value: _selectedProduct,
+                          icon: const SizedBox.shrink(),
+                          hint: _customFieldDecoration(
+                                    'Pilih Produk',
+                                    suffixIcon: const Icon(
+                                        Icons.arrow_drop_down,
+                                        color: Color(0xFF015816)),
+                                    hasError: _hasErrorProduct,
+                                  ).hintText !=
+                                  null
+                              ? TextField(
+                                  enabled: false,
+                                  decoration: _customFieldDecoration(
+                                    'Pilih Produk',
+                                    suffixIcon: const Icon(
+                                        Icons.arrow_drop_down,
+                                        color: Color(0xFF015816)),
+                                    hasError: _hasErrorProduct,
+                                  ),
+                                )
+                              : const SizedBox(),
+                          selectedItemBuilder: (BuildContext context) {
+                            return _products.map<Widget>((ProductModel item) {
+                              return Row(
+                                children: [
+                                  Expanded(
+                                      child: Text(item.name,
+                                          style: fieldTextStyle)),
+                                  const Icon(Icons.arrow_drop_down,
+                                      color: Color(0xFF015816)),
+                                ],
+                              );
+                            }).toList();
+                          },
+                          items: _products
+                              .map((p) => DropdownMenuItem(
+                                  value: p,
+                                  child: Text(p.name, style: fieldTextStyle)))
+                              .toList(),
+                          onChanged: (v) {
+                            setState(() {
+                              _selectedProduct = v;
+                              if (_hasErrorProduct) _hasErrorProduct = false;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // JUMLAH STOK
+                    _buildSvgWrapper(
+                      svgPath: 'assets/stockin/recm.svg',
+                      child: TextField(
+                        controller: _qtyController,
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.left,
+                        style: fieldTextStyle,
+                        decoration: _customFieldDecoration(
+                          'Jumlah Stok Masuk',
+                          // Menampilkan karung HANYA jika form tidak kosong
+                          suffixText:
+                              _qtyController.text.isNotEmpty ? 'karung' : null,
+                          hasError: _hasErrorQty,
+                        ),
+                        onChanged: (val) {
+                          // Selalu panggil setState agar UI bisa membaca apakah text form kosong atau tidak
+                          setState(() {
+                            _hasErrorQty = false;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // LOKASI
+                    _buildSvgWrapper(
+                      svgPath: 'assets/stockin/recm.svg',
+                      child: TextField(
+                        controller: _locationController,
+                        textAlign: TextAlign.left,
+                        style: fieldTextStyle,
+                        decoration: _customFieldDecoration(
+                          'Lokasi Batch di Gudang',
+                          hasError: _hasErrorLocation,
+                        ),
+                        onChanged: (val) {
+                          setState(() {
+                            _hasErrorLocation = false;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // TANGGAL
+                    InkWell(
+                      onTap: () => _selectDate(context),
+                      child: _buildSvgWrapper(
+                        svgPath: 'assets/stockin/recm.svg',
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Tanggal Masuk : ${_formatDate(_selectedDate)}',
+                                textAlign: TextAlign.left,
+                                style: fieldTextStyle,
+                              ),
+                            ),
+                            const Icon(Icons.calendar_month_outlined,
+                                color: Color(0xFF015816), size: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // CATATAN
+                    _buildSvgWrapper(
+                      svgPath: 'assets/stockin/recb.svg',
+                      height: 100,
+                      child: TextField(
+                        controller: _notesController,
+                        textAlign: TextAlign.left,
+                        maxLines: 3,
+                        style: fieldTextStyle,
+                        decoration: _customFieldDecoration('Catatan...'),
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+
+                    // TOMBOL SIMPAN
+                    Center(
+                      child: GestureDetector(
+                        onTap: _isSubmitting ? null : _saveStockIn,
+                        child: Container(
+                          height: 40,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            gradient: primaryGradient,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [figmaStrictShadow],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_isSubmitting)
+                                const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        color: Colors.white, strokeWidth: 2))
+                              else ...[
+                                const Icon(Icons.save_outlined,
+                                    color: Colors.white, size: 16),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Simpan',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13),
+                                ),
+                              ]
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
+            const SizedBox(height: 40),
+          ],
         ),
       ),
     );

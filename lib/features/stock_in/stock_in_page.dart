@@ -185,11 +185,11 @@ class _StockInPageState extends State<StockInPage> {
         _selectedDate = DateTime.now();
       });
 
-      // 2. Tampilkan Alert Sukses
+      // 2. Tampilkan Alert Sukses (Linter Fix: menggunakan const Row)
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(
-            children: const [
+          content: const Row(
+            children: [
               Icon(Icons.check_circle_outline, color: Colors.white),
               SizedBox(width: 12),
               Expanded(
@@ -203,7 +203,7 @@ class _StockInPageState extends State<StockInPage> {
               ),
             ],
           ),
-          backgroundColor: const Color(0xFF038E1B), // Warna hijau tema
+          backgroundColor: const Color(0xFF038E1B),
           behavior: SnackBarBehavior.floating,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -246,7 +246,6 @@ class _StockInPageState extends State<StockInPage> {
       {Widget? suffixIcon, String? suffixText, bool hasError = false}) {
     Widget? combinedSuffix;
 
-    // Gabungkan Teks Error, Suffix Text (karung), dan Suffix Icon (dropdown/kalender) menjadi satu baris sejajar
     if (hasError || suffixIcon != null || suffixText != null) {
       combinedSuffix = Row(
         mainAxisSize: MainAxisSize.min,
@@ -451,13 +450,11 @@ class _StockInPageState extends State<StockInPage> {
                         style: fieldTextStyle,
                         decoration: _customFieldDecoration(
                           'Jumlah Stok Masuk',
-                          // Menampilkan karung HANYA jika form tidak kosong
                           suffixText:
                               _qtyController.text.isNotEmpty ? 'karung' : null,
                           hasError: _hasErrorQty,
                         ),
                         onChanged: (val) {
-                          // Selalu panggil setState agar UI bisa membaca apakah text form kosong atau tidak
                           setState(() {
                             _hasErrorQty = false;
                           });

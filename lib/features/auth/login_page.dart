@@ -30,12 +30,21 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  // --- LOGIKA LOGIN DENGAN SNACKBAR ALERT ---
   Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Email dan Password wajib diisi!'),
+          backgroundColor: Colors.orange.shade800,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
       final credential = await _authService.signInWithEmailPassword(
@@ -44,15 +53,10 @@ class _LoginPageState extends State<LoginPage> {
       );
 
       final uid = credential.user?.uid;
-      if (uid == null) {
-        throw Exception('UID user tidak ditemukan.');
-      }
+      if (uid == null) throw Exception('UID user tidak ditemukan.');
 
       final AppUserModel? appUser = await _userRepository.getUserByUid(uid);
-
-      if (appUser == null) {
-        throw Exception('Data profil user tidak ditemukan di Firestore.');
-      }
+      if (appUser == null) throw Exception('Data profil tidak ditemukan.');
 
       if (!appUser.isActive) {
         await _authService.signOut();
@@ -60,215 +64,129 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       if (!mounted) return;
-
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (context) => DashboardPage(user: appUser),
-        ),
+        MaterialPageRoute(builder: (context) => DashboardPage(user: appUser)),
       );
     } catch (e) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Widget _buildLogoSection(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
+  // --- WIDGET LOGO ---
+  Widget _buildLogoSection() {
     return Column(
       children: [
-        Container(
-          width: 86,
-          height: 86,
-          decoration: BoxDecoration(
-            color: primaryColor.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(26),
-          ),
-          child: Icon(
-            Icons.inventory_2_rounded,
-            size: 48,
-            color: primaryColor,
+        Transform.translate(
+          offset: const Offset(0, 42),
+          child: Image.asset(
+            'assets/images/logo.png',
+            width: 364,
+            height: 199,
+            fit: BoxFit.contain,
           ),
         ),
-        const SizedBox(height: 18),
-        const Text(
-          'Toko Beras Abunawas',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Aplikasi Manajemen Stok Berbasis Mobile',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.black54,
+        Transform.translate(
+          offset: const Offset(0, -15),
+          child: const Text(
+            'APLIKASI MANAJEMEN STOK\nBERBASIS MOBILE',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              letterSpacing: 1.5,
+              height: 1.4,
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildLoginCard(BuildContext context) {
-    return Card(
-      elevation: 3,
-      shadowColor: Colors.black.withOpacity(0.12),
-      child: Padding(
-        padding: const EdgeInsets.all(22),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Login Akun',
-                style: TextStyle(
-                  fontSize: 19,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Masukkan email dan password untuk mengakses aplikasi.',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.black54,
-                ),
-              ),
-              const SizedBox(height: 22),
-              TextFormField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Icon(Icons.email_outlined),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Email tidak boleh kosong';
-                  }
-
-                  if (!value.contains('@')) {
-                    return 'Format email tidak valid';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: _obscurePassword,
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) {
-                  if (!_isLoading) {
-                    _handleLogin();
-                  }
-                },
-                decoration: InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
+  // --- WIDGET INPUT FIELD ---
+  Widget _buildGlassInputField({
+    required String label,
+    required String hintText,
+    required IconData icon,
+    required TextEditingController controller,
+    bool isPassword = false,
+    String? Function(String?)? validator,
+  }) {
+    return Center(
+      child: SizedBox(
+        width: 316,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 67,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(
+                    child: Image.asset('assets/login/glasscard.png',
+                        fit: BoxFit.fill),
+                  ),
+                  TextFormField(
+                    controller: controller,
+                    obscureText: isPassword ? _obscurePassword : false,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: hintText,
+                      hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.6), fontSize: 13),
+                      prefixIcon: Padding(
+                        padding: const EdgeInsets.only(left: 12.0, bottom: 4.0),
+                        child: Icon(icon, color: Colors.white, size: 20),
+                      ),
+                      suffixIcon: isPassword
+                          ? Padding(
+                              padding: const EdgeInsets.only(
+                                  right: 10.0, bottom: 4.0),
+                              child: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  color: Colors.white.withOpacity(0.8),
+                                  size: 18,
+                                ),
+                                onPressed: () => setState(
+                                    () => _obscurePassword = !_obscurePassword),
+                              ),
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.fromLTRB(22, 18, 16, 26),
+                      errorStyle: const TextStyle(height: 0, fontSize: 0),
                     ),
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
+                    validator: validator,
                   ),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Password tidak boleh kosong';
-                  }
-
-                  if (value.length < 6) {
-                    return 'Password minimal 6 karakter';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _handleLogin,
-                  icon: _isLoading
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : const Icon(Icons.login),
-                  label: Text(
-                    _isLoading ? 'Memproses...' : 'Login',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoCard() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFF2E7D32).withOpacity(0.18),
-        ),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.info_outline,
-            color: Color(0xFF2E7D32),
-            size: 22,
-          ),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Sistem ini digunakan untuk mencatat stok masuk, stok keluar, validasi FIFO, monitoring stok, dan laporan persediaan.',
-              style: TextStyle(
-                fontSize: 12.5,
-                color: Colors.black87,
-                height: 1.35,
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -276,40 +194,116 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Container(
-          width: double.infinity,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFFF6F8F6),
-                Color(0xFFE8F5E9),
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Color(0xFF015816), Color(0xFF10B508), Color(0xFF06F43E)],
+            stops: [0.0, 0.49, 1.0],
           ),
+        ),
+        child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(22),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+              child: Form(
+                key: _formKey,
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _buildLogoSection(context),
-                    const SizedBox(height: 28),
-                    _buildLoginCard(context),
-                    const SizedBox(height: 14),
-                    _buildInfoCard(),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 20),
+                    _buildLogoSection(),
+                    const SizedBox(height: 0),
+
+                    _buildGlassInputField(
+                      label: 'Email',
+                      hintText: 'Masukan email',
+                      icon: Icons.email_outlined,
+                      controller: _emailController,
+                      validator: (value) => value!.isEmpty ? "" : null,
+                    ),
+                    const SizedBox(height: 20),
+
+                    _buildGlassInputField(
+                      label: 'Password',
+                      hintText: 'Masukan Password',
+                      icon: Icons.lock_outline,
+                      controller: _passwordController,
+                      isPassword: true,
+                      validator: (value) => value!.isEmpty ? "" : null,
+                    ),
+                    const SizedBox(height: 40),
+
+                    // --- TOMBOL LOGIN (ANIMASI MENYUSUT & RADIUS 10) ---
+                    Center(
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        height: 35,
+                        // LEBAR DINAMIS: Mengecil jadi 45 saat loading, kembali 90 saat selesai
+                        width: _isLoading ? 45 : 90,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Positioned.fill(
+                                child: Image.asset(
+                                  'assets/login/glasscard.png',
+                                  fit: BoxFit.fill,
+                                ),
+                              ),
+                              ElevatedButton(
+                                onPressed: _isLoading ? null : _handleLogin,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  padding: EdgeInsets.zero,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: _isLoading
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                  Colors.white),
+                                        ),
+                                      )
+                                    : const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.login_rounded,
+                                              size: 14, color: Colors.white),
+                                          SizedBox(width: 4),
+                                          Text('Login',
+                                              style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12)),
+                                        ],
+                                      ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 110),
                     const Text(
                       '© Toko Beras Abunawas',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.black45,
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.white70),
                     ),
                   ],
                 ),

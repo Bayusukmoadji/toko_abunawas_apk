@@ -71,6 +71,7 @@ flutter:
       - assets/images/
       - assets/stockin/
       - assets/login/
+      - assets/stockout/
  
 
 

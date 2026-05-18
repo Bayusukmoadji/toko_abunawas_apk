@@ -106,7 +106,7 @@ class _StockOutScanPageState extends State<StockOutScanPage> {
                   decoration: BoxDecoration(
                     image: const DecorationImage(
                       image: AssetImage('assets/stockout/bgpop.png'),
-                      fit: BoxFit.cover,
+                      fit: BoxFit.fill,
                     ),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
@@ -227,13 +227,11 @@ class _StockOutScanPageState extends State<StockOutScanPage> {
                         ),
                       const SizedBox(height: 28),
                       Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.center, // Center sejajar
+                        mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           SizedBox(
-                            width:
-                                98, // Ukuran disamakan dengan tombol Lanjut agar presisi
+                            width: 98,
                             child: TextButton(
                               onPressed: () => Navigator.pop(context),
                               style: TextButton.styleFrom(
@@ -253,7 +251,7 @@ class _StockOutScanPageState extends State<StockOutScanPage> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 32), // Jarak tengah presisi
+                          const SizedBox(width: 32),
                           Container(
                             width: 98,
                             height: 35,
@@ -278,7 +276,8 @@ class _StockOutScanPageState extends State<StockOutScanPage> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.transparent,
                                 shadowColor: Colors.transparent,
-                                padding: const EdgeInsets.only(bottom: 2),
+                                padding:
+                                    const EdgeInsets.only(bottom: 6, right: 6),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                 ),

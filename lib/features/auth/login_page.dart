@@ -253,7 +253,7 @@ class _LoginPageState extends State<LoginPage> {
                             children: [
                               Positioned.fill(
                                 child: Image.asset(
-                                  'assets/login/glasscard.png',
+                                  'assets/login/glasscard.png', // Dikembalikan ke glasscard.png
                                   fit: BoxFit.fill,
                                 ),
                               ),
@@ -278,19 +278,25 @@ class _LoginPageState extends State<LoginPage> {
                                                   Colors.white),
                                         ),
                                       )
-                                    : const Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Icon(Icons.login_rounded,
-                                              size: 14, color: Colors.white),
-                                          SizedBox(width: 4),
-                                          Text('Login',
-                                              style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 12)),
-                                        ],
+                                    : const SingleChildScrollView(
+                                        // Ditambahkan agar tidak ada overflow saat animasi
+                                        scrollDirection: Axis.horizontal,
+                                        physics: NeverScrollableScrollPhysics(),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.login_rounded,
+                                                size: 14, color: Colors.white),
+                                            SizedBox(width: 4),
+                                            Text('Login',
+                                                style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12)),
+                                          ],
+                                        ),
                                       ),
                               ),
                             ],

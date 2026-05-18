@@ -49,7 +49,7 @@ class DashboardPage extends StatelessWidget {
     return _isOwner ? 'Pemilik Toko' : 'Karyawan';
   }
 
-  // --- REVISI TOTAL: DIALOG LOGOUT GLASSY & GRADASI ---
+  // --- REVISI TOTAL: DIALOG LOGOUT DENGAN PNG ---
   Future<void> _logout(BuildContext context) async {
     final shouldLogout = await showGeneralDialog<bool>(
       context: context,
@@ -57,157 +57,137 @@ class DashboardPage extends StatelessWidget {
       barrierLabel: 'Dismiss',
       barrierColor: Colors.black.withOpacity(0.4), // Overlay gelap di belakang
       transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, anim1, anim2) {
-        return Align(
-          alignment: Alignment.center,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              width: MediaQuery.of(context).size.width * 0.85,
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              // Efek potong agar blur tidak keluar dari sudut melengkung
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(
-                      sigmaX: 16, sigmaY: 16), // Efek Frosted Glass
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-                    decoration: BoxDecoration(
-                      // Latar belakang semitransparan (putih dengan sentuhan hijau super tipis)
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.white.withOpacity(0.85),
-                          const Color(0xFF84E977).withOpacity(0.15),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(24),
-                      // Border putih tipis bercahaya khas efek kaca
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.6),
-                        width: 1.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.15),
-                          blurRadius: 20,
-                          spreadRadius: -5,
-                        ),
-                      ],
+      pageBuilder: (context, animation, secondaryAnimation) => const SizedBox(),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return ScaleTransition(
+          scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  image: const DecorationImage(
+                    image: AssetImage('assets/stockout/bgpop.png'),
+                    fit: BoxFit.cover,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 20,
+                      spreadRadius: 5,
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.logout,
+                        color: Colors.white,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Konfirmasi Logout',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Apakah Anda yakin ingin keluar dari aplikasi?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        const Text(
-                          'Konfirmasi Logout',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Apakah Anda yakin ingin keluar dari aplikasi?',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.black54,
-                            height: 1.4,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        // Baris Tombol
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            // Tombol Batal (Lembut, warna hijau gelap)
-                            TextButton(
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 10),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
+                        SizedBox(
+                          width: 98,
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text(
+                            ),
+                            child: const Center(
+                              child: Text(
                                 'Batal',
                                 style: TextStyle(
-                                  color: Color(0xFF015816), // Hijau utama
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            // Tombol Logout (Pekat dengan Gradasi Utama)
-                            Container(
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xFF015816),
-                                    Color(0xFF038E1B),
-                                    Color(0xFF84E977),
-                                  ],
-                                  stops: [0.0, 0.5, 1.0],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFF038E1B)
-                                        .withOpacity(0.3),
-                                    offset: const Offset(0, 4),
-                                    blurRadius: 8,
-                                  ),
-                                ],
+                          ),
+                        ),
+                        const SizedBox(width: 32),
+                        Container(
+                          width: 98,
+                          height: 35,
+                          decoration: const BoxDecoration(
+                            image: DecorationImage(
+                              image: AssetImage('assets/stockout/botpop.png'),
+                              fit: BoxFit.fill,
+                            ),
+                          ),
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding:
+                                  const EdgeInsets.only(bottom: 6, right: 6),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
                               ),
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 20, vertical: 10),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                onPressed: () => Navigator.pop(context, true),
-                                child: const Text(
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Icon(Icons.exit_to_app,
+                                    color: Colors.white, size: 16),
+                                SizedBox(width: 4),
+                                Text(
                                   'Logout',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 14,
+                                    fontSize: 12,
+                                    height: 1.1,
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
-          ),
-        );
-      },
-      transitionBuilder: (context, anim1, anim2, child) {
-        // Animasi muncul skala membesar lembut (scale up)
-        return Transform.scale(
-          scale: CurvedAnimation(
-            parent: anim1,
-            curve: Curves.easeOutCubic,
-          ).value,
-          child: FadeTransition(
-            opacity: anim1,
-            child: child,
           ),
         );
       },

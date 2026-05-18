@@ -34,6 +34,13 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
   bool _isSubmitting = false;
   bool _isFifoValid = false;
 
+  final BoxShadow _figmaShadow = BoxShadow(
+    color: Colors.black.withOpacity(0.15),
+    offset: const Offset(0, 4),
+    blurRadius: 12,
+    spreadRadius: 0,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +52,23 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
     _qtyController.dispose();
     _notesController.dispose();
     super.dispose();
+  }
+
+  void _showFloatingSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
+      ),
+    );
   }
 
   Future<void> _checkFifo() async {
@@ -68,23 +92,14 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
         _isLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal validasi FIFO: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showFloatingSnackBar('Gagal validasi FIFO: $e', Colors.redAccent);
     }
   }
 
   Future<void> _saveStockOut() async {
     if (!_isFifoValid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Batch ini tidak sesuai urutan FIFO.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showFloatingSnackBar(
+          'Batch ini tidak sesuai urutan FIFO.', Colors.redAccent);
       return;
     }
 
@@ -121,23 +136,15 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Stok keluar berhasil disimpan.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      _showFloatingSnackBar(
+          'Stok keluar berhasil disimpan.', const Color(0xFF038E1B));
 
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal menyimpan stok keluar: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showFloatingSnackBar(
+          'Gagal menyimpan stok keluar: $e', Colors.redAccent);
 
       setState(() {
         _isSubmitting = false;
@@ -154,129 +161,145 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
   }
 
   Widget _buildHeaderCard() {
-    return const Card(
-      color: Color(0xFF2E7D32),
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.white24,
-              child: Icon(
-                Icons.outbox_outlined,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Konfirmasi Stok Keluar',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 21,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Periksa validasi FIFO dan isi jumlah stok yang akan dikeluarkan dari batch.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF015816), Color(0xFF038E1B)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [_figmaShadow],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.outbox_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 16),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Konfirmasi Stok',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Periksa validasi FIFO dan isi jumlah stok yang akan dikeluarkan dari batch ini.',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildFifoStatusCard() {
-    final color = _isFifoValid ? Colors.green : Colors.red;
+    final color = _isFifoValid ? const Color(0xFF038E1B) : Colors.redAccent;
+    final bgColor =
+        _isFifoValid ? const Color(0xFFF1F8F1) : const Color(0xFFFEF2F2);
     final icon =
         _isFifoValid ? Icons.check_circle_outline : Icons.error_outline;
     final title = _isFifoValid ? 'FIFO Sesuai' : 'FIFO Tidak Sesuai';
     final message = _isFifoValid
-        ? 'Batch ini adalah batch aktif paling lama untuk produk terkait. Stok keluar dapat diproses.'
+        ? 'Batch ini adalah batch aktif paling lama. Stok keluar dapat diproses.'
         : 'Batch yang dipindai bukan batch aktif paling lama. Sistem menolak stok keluar agar aturan FIFO tetap berjalan.';
 
-    return Card(
-      color: color.withOpacity(0.08),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              color: color,
-              size: 30,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+    return Container(
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+        boxShadow: [_figmaShadow],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(height: 5),
-                  Text(
-                    message,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.black87,
-                      height: 1.35,
-                    ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.black87,
+                    height: 1.4,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildInfoRow({
-    required String label,
-    required String value,
-  }) {
+  Widget _buildInfoRow({required String label, required String value}) {
     final displayValue = value.trim().isEmpty ? '-' : value.trim();
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 120,
+            width: 130,
             child: Text(
               label,
               style: const TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Colors.black54,
+                fontWeight: FontWeight.w600,
               ),
             ),
+          ),
+          const Text(
+            ':  ',
+            style: TextStyle(fontSize: 13, color: Colors.black54),
           ),
           Expanded(
             child: Text(
               displayValue,
               style: const TextStyle(
                 fontSize: 13.5,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
                 height: 1.3,
               ),
             ),
@@ -296,53 +319,266 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
     final location =
         batch.storageLocation.trim().isEmpty ? '-' : batch.storageLocation;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: color.withOpacity(0.12),
-                  child: Icon(
-                    icon,
-                    color: color,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [_figmaShadow],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildInfoRow(label: 'Produk', value: batch.productName),
+          _buildInfoRow(label: 'Kode Batch', value: batch.batchCode),
+          _buildInfoRow(label: 'Lokasi', value: location),
+          _buildInfoRow(
+              label: 'Tanggal Masuk', value: _formatDate(receivedDate)),
+          _buildInfoRow(
+            label: 'Sisa Stok',
+            value: '${batch.remainingQty} ${batch.unit}',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStockOutForm(BatchModel scannedBatch) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [_figmaShadow],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Form Pengeluaran',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _isFifoValid
+                  ? 'Masukkan jumlah stok yang keluar dari batch ini.'
+                  : 'Form dinonaktifkan karena batch tidak sesuai aturan.',
+              style: const TextStyle(
+                color: Colors.black54,
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: _qtyController,
+              enabled: _isFifoValid,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+              decoration: InputDecoration(
+                labelText: 'Jumlah Stok Keluar',
+                hintText: 'Contoh: 1',
+                labelStyle: TextStyle(
+                    color:
+                        _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
+                prefixIcon: Icon(Icons.numbers,
+                    color:
+                        _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
+                suffixText: scannedBatch.unit,
+                suffixStyle: const TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.black54),
+                filled: true,
+                fillColor: _isFifoValid ? Colors.white : Colors.grey.shade100,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: const Color(0xFF038E1B).withOpacity(0.3),
+                    width: 1.5,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF038E1B),
+                    width: 2.0,
+                  ),
+                ),
+                disabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: Colors.grey.shade300,
+                    width: 1.0,
+                  ),
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: Colors.redAccent,
+                    width: 1.5,
+                  ),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: Colors.redAccent,
+                    width: 2.0,
+                  ),
+                ),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Jumlah tidak boleh kosong';
+                }
+                final qty = int.tryParse(value.trim());
+                if (qty == null || qty <= 0) {
+                  return 'Harus berupa angka > 0';
+                }
+                if (qty > scannedBatch.remainingQty) {
+                  return 'Melebihi sisa stok (Maks: ${scannedBatch.remainingQty})';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _notesController,
+              enabled: _isFifoValid,
+              maxLines: 3,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Catatan (Opsional)',
+                hintText: 'Tambahkan keterangan jika perlu...',
+                labelStyle: TextStyle(
+                    color:
+                        _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
+                // Menggunakan Padding bottom besar untuk mendorong ikon naik sejajar teks
+                prefixIcon: Padding(
+                  padding: const EdgeInsets.only(bottom: 44.0),
+                  child: Icon(Icons.notes_outlined,
+                      color:
+                          _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
+                ),
+                alignLabelWithHint: true,
+                filled: true,
+                fillColor: _isFifoValid ? Colors.white : Colors.grey.shade100,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: const Color(0xFF038E1B).withOpacity(0.3),
+                    width: 1.5,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF038E1B),
+                    width: 2.0,
+                  ),
+                ),
+                disabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: Colors.grey.shade300,
+                    width: 1.0,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Align(
+              alignment: Alignment.center,
+              child: Container(
+                height: 50,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: _isFifoValid
+                        ? [const Color(0xFF015816), const Color(0xFF038E1B)]
+                        : [Colors.grey.shade400, Colors.grey.shade500],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: _isFifoValid && !_isSubmitting
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            offset: const Offset(0, 4),
+                            blurRadius: 10,
+                          )
+                        ]
+                      : [],
+                ),
+                child: ElevatedButton.icon(
+                  onPressed:
+                      !_isFifoValid || _isSubmitting ? null : _saveStockOut,
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.check_circle_outline,
+                          color: Colors.white, size: 22),
+                  label: Text(
+                    _isSubmitting ? 'Menyimpan...' : 'Simpan Stok Keluar',
                     style: const TextStyle(
-                      fontSize: 17,
+                      color: Colors.white,
                       fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    // Menghilangkan warna background bawaan saat tombol dinonaktifkan
+                    disabledBackgroundColor: Colors.transparent,
+                    disabledForegroundColor: Colors.white70,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _buildInfoRow(
-              label: 'Produk',
-              value: batch.productName,
-            ),
-            _buildInfoRow(
-              label: 'Kode Batch',
-              value: batch.batchCode,
-            ),
-            _buildInfoRow(
-              label: 'Lokasi',
-              value: location,
-            ),
-            _buildInfoRow(
-              label: 'Tanggal Masuk',
-              value: _formatDate(receivedDate),
-            ),
-            _buildInfoRow(
-              label: 'Sisa Stok',
-              value: '${batch.remainingQty} ${batch.unit}',
+              ),
             ),
           ],
         ),
@@ -350,128 +586,40 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
     );
   }
 
-  Widget _buildStockOutForm(BatchModel scannedBatch) {
-    return Form(
-      key: _formKey,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Form Stok Keluar',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _isFifoValid
-                    ? 'Masukkan jumlah stok yang keluar dari batch ini.'
-                    : 'Form dinonaktifkan karena batch tidak sesuai aturan FIFO.',
-                style: const TextStyle(
-                  color: Colors.black54,
-                  fontSize: 13,
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 18),
-              TextFormField(
-                controller: _qtyController,
-                enabled: _isFifoValid,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: 'Jumlah Stok Keluar',
-                  hintText: 'Contoh: 1',
-                  prefixIcon: const Icon(Icons.numbers),
-                  suffixText: scannedBatch.unit,
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Jumlah tidak boleh kosong';
-                  }
-
-                  final qty = int.tryParse(value.trim());
-
-                  if (qty == null || qty <= 0) {
-                    return 'Jumlah harus berupa angka lebih dari 0';
-                  }
-
-                  if (qty > scannedBatch.remainingQty) {
-                    return 'Jumlah keluar melebihi sisa stok batch';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _notesController,
-                enabled: _isFifoValid,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Catatan',
-                  hintText: 'Opsional',
-                  prefixIcon: Icon(Icons.notes_outlined),
-                  alignLabelWithHint: true,
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed:
-                      !_isFifoValid || _isSubmitting ? null : _saveStockOut,
-                  icon: _isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
-                      : const Icon(Icons.save_outlined),
-                  label: Text(
-                    _isSubmitting ? 'Menyimpan...' : 'Simpan Stok Keluar',
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildLoadingPage() {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Konfirmasi Stok Keluar'),
-      ),
-      body: const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 14),
-                Text(
-                  'Memeriksa aturan FIFO...',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [_figmaShadow],
+              ),
+              child: const CircularProgressIndicator(
+                color: Color(0xFF038E1B),
+                strokeWidth: 3,
+              ),
             ),
-          ),
+            const SizedBox(height: 24),
+            const Text(
+              'Memeriksa Aturan FIFO...',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF015816),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Mohon tunggu sebentar',
+              style: TextStyle(color: Colors.black54, fontSize: 13),
+            ),
+          ],
         ),
       ),
     );
@@ -486,45 +634,105 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Konfirmasi Stok Keluar'),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildHeaderCard(),
-                  const SizedBox(height: 12),
-                  _buildFifoStatusCard(),
-                  const SizedBox(height: 12),
-                  _buildBatchCard(
-                    title: 'Batch yang Dipindai',
-                    batch: scannedBatch,
-                    color: _isFifoValid ? Colors.green : Colors.red,
-                    icon: Icons.qr_code_2,
-                  ),
-                  if (!_isFifoValid && _fifoBatch != null) ...[
-                    const SizedBox(height: 12),
-                    _buildBatchCard(
-                      title: 'Batch yang Seharusnya Keluar',
-                      batch: _fifoBatch!,
-                      color: Colors.orange,
-                      icon: Icons.priority_high_outlined,
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  _buildStockOutForm(scannedBatch),
-                  const SizedBox(height: 12),
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: Column(
+        children: [
+          // --- CUSTOM HEADER GRADASI ---
+          Container(
+            padding: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 16,
+              right: 16,
+              bottom: 24,
+            ),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF015816),
+                  Color(0xFF038E1B),
+                  Color(0xFF84E977),
                 ],
+                stops: [0.0, 0.5, 1.0],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(24),
+                bottomRight: Radius.circular(24),
+              ),
+              boxShadow: [_figmaShadow],
+            ),
+            child: Stack(
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: const Icon(
+                      Icons.keyboard_double_arrow_left,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                ),
+                const Positioned.fill(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: Text(
+                      'Detail Stok Keluar',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // --- KONTEN HALAMAN ---
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildHeaderCard(),
+                      const SizedBox(height: 20),
+                      _buildFifoStatusCard(),
+                      const SizedBox(height: 20),
+                      _buildBatchCard(
+                        title: 'Batch yang Dipindai',
+                        batch: scannedBatch,
+                        color: _isFifoValid
+                            ? const Color(0xFF038E1B)
+                            : Colors.redAccent,
+                        icon: Icons.qr_code_scanner_rounded,
+                      ),
+                      if (!_isFifoValid && _fifoBatch != null) ...[
+                        const SizedBox(height: 20),
+                        _buildBatchCard(
+                          title: 'Batch yang Seharusnya Keluar',
+                          batch: _fifoBatch!,
+                          color: Colors.orange.shade800,
+                          icon: Icons.priority_high_rounded,
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      _buildStockOutForm(scannedBatch),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

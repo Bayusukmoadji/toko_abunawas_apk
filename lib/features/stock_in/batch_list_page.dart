@@ -21,10 +21,10 @@ class BatchListPage extends StatelessWidget {
     final normalizedStatus = status.toLowerCase().trim();
 
     if (normalizedStatus == 'empty') {
-      return Colors.red;
+      return Colors.red.shade400;
     }
 
-    return Colors.green;
+    return Colors.green.shade600;
   }
 
   String _getStatusText(String status) {
@@ -56,41 +56,43 @@ class BatchListPage extends StatelessWidget {
     );
   }
 
-  Widget _buildHeaderCard() {
-    return const Card(
-      color: Color(0xFF2E7D32),
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSummaryCard(List<BatchModel> batches) {
+    final activeBatch = _getActiveBatchCount(batches);
+    final emptyBatch = _getEmptyBatchCount(batches);
+    final totalRemainingStock = _getTotalRemainingStock(batches);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            CircleAvatar(
-              backgroundColor: Colors.white24,
-              child: Icon(
-                Icons.inventory_2_outlined,
-                color: Colors.white,
+            const Text(
+              'Ringkasan Batch',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Colors.black87,
               ),
             ),
-            SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFC8E6C9).withOpacity(0.5),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.green.shade300),
+              ),
+              child: Row(
                 children: [
+                  Icon(Icons.filter_alt_outlined,
+                      size: 16, color: Colors.green.shade800),
+                  const SizedBox(width: 4),
                   Text(
-                    'Daftar Batch',
+                    'Filter',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 21,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Pantau stok per-batch, lokasi penyimpanan, status batch, dan QR Code.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      height: 1.3,
+                      color: Colors.green.shade900,
                     ),
                   ),
                 ],
@@ -98,94 +100,70 @@ class BatchListPage extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryCard(List<BatchModel> batches) {
-    final activeBatch = _getActiveBatchCount(batches);
-    final emptyBatch = _getEmptyBatchCount(batches);
-    final totalRemainingStock = _getTotalRemainingStock(batches);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Ringkasan Batch',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F5E9),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.black12),
+          ),
+          child: Column(
+            children: [
+              _buildSummaryRow(
+                  label: 'Total Batch', value: '${batches.length}'),
+              _buildSummaryRow(label: 'Batch Aktif', value: '$activeBatch'),
+              _buildSummaryRow(label: 'Batch Habis', value: '$emptyBatch'),
+              _buildSummaryRow(
+                label: 'Total Sisa Stok',
+                value: '$totalRemainingStock karung',
+                isLast: true,
               ),
-            ),
-            const SizedBox(height: 12),
-            _buildSummaryRow(
-              icon: Icons.inventory_2_outlined,
-              label: 'Total Batch',
-              value: '${batches.length}',
-              color: Colors.blue,
-            ),
-            _buildSummaryRow(
-              icon: Icons.check_circle_outline,
-              label: 'Batch Aktif',
-              value: '$activeBatch',
-              color: Colors.green,
-            ),
-            _buildSummaryRow(
-              icon: Icons.cancel_outlined,
-              label: 'Batch Habis',
-              value: '$emptyBatch',
-              color: Colors.red,
-            ),
-            _buildSummaryRow(
-              icon: Icons.scale_outlined,
-              label: 'Total Sisa Stok',
-              value: '$totalRemainingStock karung',
-              color: Colors.orange,
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   Widget _buildSummaryRow({
-    required IconData icon,
     required String label,
     required String value,
-    required Color color,
+    bool isLast = false,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 20,
-            color: color,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.black87,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
               ),
-            ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
+        ),
+        if (!isLast)
+          const Divider(
+            color: Colors.black38,
+            thickness: 0.5,
+            height: 12,
           ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -194,7 +172,7 @@ class BatchListPage extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: 9,
+        horizontal: 10,
         vertical: 4,
       ),
       decoration: BoxDecoration(
@@ -208,7 +186,7 @@ class BatchListPage extends StatelessWidget {
         _getStatusText(status),
         style: TextStyle(
           color: statusColor,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -220,13 +198,13 @@ class BatchListPage extends StatelessWidget {
     required String text,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.only(top: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             icon,
-            size: 17,
+            size: 15,
             color: Colors.black45,
           ),
           const SizedBox(width: 8),
@@ -234,8 +212,8 @@ class BatchListPage extends StatelessWidget {
             child: Text(
               text,
               style: const TextStyle(
-                fontSize: 13,
-                color: Colors.black87,
+                fontSize: 12,
+                color: Colors.black54,
                 height: 1.3,
               ),
             ),
@@ -254,83 +232,97 @@ class BatchListPage extends StatelessWidget {
         ? '-'
         : batch.storageLocation.trim();
 
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => BatchDetailPage(batch: batch),
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                backgroundColor:
-                    _getStatusColor(batch.status).withOpacity(0.12),
-                child: Icon(
-                  Icons.inventory_2_outlined,
-                  color: _getStatusColor(batch.status),
-                ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE8F5E9),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => BatchDetailPage(batch: batch),
               ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      batch.productName,
-                      style: const TextStyle(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.bold,
-                      ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor:
+                        _getStatusColor(batch.status).withOpacity(0.15),
+                    child: Icon(
+                      Icons.inventory_2_outlined,
+                      size: 18,
+                      color: _getStatusColor(batch.status),
                     ),
-                    const SizedBox(height: 5),
-                    Row(
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            batch.batchCode,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              color: Colors.black54,
-                              fontWeight: FontWeight.w500,
-                            ),
+                        Text(
+                          batch.productName,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _buildStatusChip(batch.status),
+                        const SizedBox(height: 2),
+                        Text(
+                          batch.batchCode,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black45,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _buildInfoRow(
+                          icon: Icons.calendar_month_outlined,
+                          text: 'Tanggal masuk: ${_formatDate(receivedDate)}',
+                        ),
+                        _buildInfoRow(
+                          icon: Icons.inventory_outlined,
+                          text:
+                              'Sisa stok: ${batch.remainingQty} ${batch.unit} dari ${batch.initialQty} ${batch.unit}',
+                        ),
+                        _buildInfoRow(
+                          icon: Icons.location_on_outlined,
+                          text: 'Lokasi: $location',
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    _buildInfoRow(
-                      icon: Icons.calendar_month_outlined,
-                      text: 'Tanggal masuk: ${_formatDate(receivedDate)}',
-                    ),
-                    _buildInfoRow(
-                      icon: Icons.inventory_outlined,
-                      text:
-                          'Sisa stok: ${batch.remainingQty} ${batch.unit} dari ${batch.initialQty} ${batch.unit}',
-                    ),
-                    _buildInfoRow(
-                      icon: Icons.location_on_outlined,
-                      text: 'Lokasi: $location',
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Icon(
+                        Icons.keyboard_double_arrow_right,
+                        color: Colors.black87,
+                        size: 20,
+                      ),
+                      _buildStatusChip(batch.status),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                color: Colors.black38,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -367,15 +359,52 @@ class BatchListPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Daftar Batch'),
+      backgroundColor: const Color(0xFFFAFAFA),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(60.0),
+        child: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.keyboard_double_arrow_left,
+                color: Colors.white),
+            onPressed: () {
+              Navigator.pop(context);
+            },
+          ),
+          title: const Text(
+            'DAFTAR BATCH',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              letterSpacing: 1.2,
+            ),
+          ),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF1B5E20),
+                  Color(0xFF4CAF50)
+                ], // Gradien hijau mirip desain
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(20),
+              ),
+            ),
+          ),
+        ),
       ),
       body: StreamBuilder<List<BatchModel>>(
         stream: _batchRepository.getBatchesStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(),
+              child: CircularProgressIndicator(color: Colors.green),
             );
           }
 
@@ -391,25 +420,16 @@ class BatchListPage extends StatelessWidget {
 
           return SafeArea(
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               children: [
-                _buildHeaderCard(),
-                const SizedBox(height: 12),
                 _buildSummaryCard(batches),
-                const SizedBox(height: 12),
+                const SizedBox(height: 24),
                 const Text(
                   'Data Batch',
                   style: TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Pilih batch untuk melihat detail dan QR Code.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.black54,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black87,
                   ),
                 ),
                 const SizedBox(height: 12),

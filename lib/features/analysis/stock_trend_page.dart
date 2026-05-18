@@ -907,3 +907,4 @@ class _RegressionResult {
     required this.estimatedNext7Days,
   });
 }
+// linear regression

@@ -4,10 +4,17 @@ import '../../data/models/batch_model.dart';
 import '../../data/repositories/batch_repository.dart';
 import 'batch_detail_page.dart';
 
-class BatchListPage extends StatelessWidget {
-  BatchListPage({super.key});
+class BatchListPage extends StatefulWidget {
+  const BatchListPage({super.key});
 
+  @override
+  State<BatchListPage> createState() => _BatchListPageState();
+}
+
+class _BatchListPageState extends State<BatchListPage> {
   final BatchRepository _batchRepository = BatchRepository();
+
+  String _selectedStatusFilter = 'Semua';
 
   String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
@@ -19,21 +26,17 @@ class BatchListPage extends StatelessWidget {
 
   Color _getStatusColor(String status) {
     final normalizedStatus = status.toLowerCase().trim();
-
     if (normalizedStatus == 'empty') {
       return Colors.red.shade400;
     }
-
     return Colors.green.shade600;
   }
 
   String _getStatusText(String status) {
     final normalizedStatus = status.toLowerCase().trim();
-
     if (normalizedStatus == 'empty') {
       return 'Habis';
     }
-
     return 'Aktif';
   }
 
@@ -56,6 +59,101 @@ class BatchListPage extends StatelessWidget {
     );
   }
 
+  void _showFilterBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Filter Batch',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const Divider(),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Status Batch',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    children: ['Semua', 'Aktif', 'Habis'].map((status) {
+                      final isSelected = _selectedStatusFilter == status;
+                      return ChoiceChip(
+                        label: Text(status),
+                        selected: isSelected,
+                        selectedColor: Colors.green.shade100,
+                        backgroundColor: Colors.grey.shade100,
+                        labelStyle: TextStyle(
+                          color: isSelected
+                              ? Colors.green.shade800
+                              : Colors.black87,
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        onSelected: (selected) {
+                          setModalState(() {
+                            _selectedStatusFilter = status;
+                          });
+                          setState(() {});
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 45,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text(
+                        'Terapkan Filter',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildSummaryCard(List<BatchModel> batches) {
     final activeBatch = _getActiveBatchCount(batches);
     final emptyBatch = _getEmptyBatchCount(batches);
@@ -64,51 +162,26 @@ class BatchListPage extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Ringkasan Batch',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Colors.black87,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFC8E6C9).withOpacity(0.5),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.green.shade300),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.filter_alt_outlined,
-                      size: 16, color: Colors.green.shade800),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Filter',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green.shade900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        const Text(
+          'Ringkasan Batch',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
         ),
         const SizedBox(height: 12),
         Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8F5E9),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.black12),
+          constraints: const BoxConstraints(minHeight: 152),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/batch/cardsum.png'),
+              fit: BoxFit.fill,
+            ),
           ),
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _buildSummaryRow(
                   label: 'Total Batch', value: '${batches.length}'),
@@ -117,7 +190,6 @@ class BatchListPage extends StatelessWidget {
               _buildSummaryRow(
                 label: 'Total Sisa Stok',
                 value: '$totalRemainingStock karung',
-                isLast: true,
               ),
             ],
           ),
@@ -129,19 +201,18 @@ class BatchListPage extends StatelessWidget {
   Widget _buildSummaryRow({
     required String label,
     required String value,
-    bool isLast = false,
   }) {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 label,
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: Colors.black87,
                 ),
@@ -149,7 +220,7 @@ class BatchListPage extends StatelessWidget {
               Text(
                 value,
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                   color: Colors.black87,
                 ),
@@ -157,12 +228,11 @@ class BatchListPage extends StatelessWidget {
             ],
           ),
         ),
-        if (!isLast)
-          const Divider(
-            color: Colors.black38,
-            thickness: 0.5,
-            height: 12,
-          ),
+        const Divider(
+          color: Colors.black38,
+          thickness: 0.5,
+          height: 8,
+        ),
       ],
     );
   }
@@ -176,10 +246,10 @@ class BatchListPage extends StatelessWidget {
         vertical: 4,
       ),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.12),
+        color: statusColor.withOpacity(0.15),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: statusColor.withOpacity(0.35),
+          color: statusColor.withOpacity(0.4),
         ),
       ),
       child: Text(
@@ -198,23 +268,24 @@ class BatchListPage extends StatelessWidget {
     required String text,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             icon,
-            size: 15,
+            size: 13,
             color: Colors.black45,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               text,
               style: const TextStyle(
-                fontSize: 12,
+                fontSize: 10.0,
                 color: Colors.black54,
-                height: 1.3,
+                height: 1.2,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -234,10 +305,12 @@ class BatchListPage extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE8F5E9),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black12),
+      constraints: const BoxConstraints(minHeight: 118),
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage('assets/batch/cardbatch.png'),
+          fit: BoxFit.fill,
+        ),
       ),
       child: Material(
         color: Colors.transparent,
@@ -252,76 +325,88 @@ class BatchListPage extends StatelessWidget {
             );
           },
           child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor:
-                        _getStatusColor(batch.status).withOpacity(0.15),
-                    child: Icon(
-                      Icons.inventory_2_outlined,
-                      size: 18,
-                      color: _getStatusColor(batch.status),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          batch.productName,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          batch.batchCode,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.black45,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        _buildInfoRow(
-                          icon: Icons.calendar_month_outlined,
-                          text: 'Tanggal masuk: ${_formatDate(receivedDate)}',
-                        ),
-                        _buildInfoRow(
-                          icon: Icons.inventory_outlined,
-                          text:
-                              'Sisa stok: ${batch.remainingQty} ${batch.unit} dari ${batch.initialQty} ${batch.unit}',
-                        ),
-                        _buildInfoRow(
-                          icon: Icons.location_on_outlined,
-                          text: 'Lokasi: $location',
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Icon(
-                        Icons.keyboard_double_arrow_right,
-                        color: Colors.black87,
-                        size: 20,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor:
+                          _getStatusColor(batch.status).withOpacity(0.15),
+                      child: Icon(
+                        Icons.inventory_2_outlined,
+                        size: 16,
+                        color: _getStatusColor(batch.status),
                       ),
-                      _buildStatusChip(batch.status),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            batch.productName,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            batch.batchCode,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.black45,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.keyboard_double_arrow_right,
+                      color: Colors.black87,
+                      size: 20,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const SizedBox(width: 42),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildInfoRow(
+                            icon: Icons.calendar_today_outlined,
+                            text: 'Tanggal masuk: ${_formatDate(receivedDate)}',
+                          ),
+                          _buildInfoRow(
+                            icon: Icons.inventory_outlined,
+                            text:
+                                'Sisa stok: ${batch.remainingQty} ${batch.unit} dari ${batch.initialQty} ${batch.unit}',
+                          ),
+                          _buildInfoRow(
+                            icon: Icons.location_on_outlined,
+                            text: 'Lokasi: $location',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildStatusChip(batch.status),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
@@ -386,11 +471,13 @@ class BatchListPage extends StatelessWidget {
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  Color(0xFF1B5E20),
-                  Color(0xFF4CAF50)
-                ], // Gradien hijau mirip desain
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+                  Color(0xFF015816),
+                  Color(0xFF038E1B),
+                  Color(0xFF84E977),
+                ],
+                stops: [0.0, 0.5, 1.0],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.vertical(
                 bottom: Radius.circular(20),
@@ -412,34 +499,108 @@ class BatchListPage extends StatelessWidget {
             return _buildErrorState(snapshot.error);
           }
 
-          final batches = snapshot.data ?? [];
+          final allBatches = snapshot.data ?? [];
 
-          if (batches.isEmpty) {
+          if (allBatches.isEmpty) {
             return _buildEmptyState();
           }
 
+          List<BatchModel> displayedBatches = allBatches;
+          if (_selectedStatusFilter == 'Aktif') {
+            displayedBatches = allBatches
+                .where((b) => b.status.toLowerCase().trim() != 'empty')
+                .toList();
+          } else if (_selectedStatusFilter == 'Habis') {
+            displayedBatches = allBatches
+                .where((b) => b.status.toLowerCase().trim() == 'empty')
+                .toList();
+          }
+
           return SafeArea(
-            child: ListView(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              children: [
-                _buildSummaryCard(batches),
-                const SizedBox(height: 24),
-                const Text(
-                  'Data Batch',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.black87,
-                  ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.black12, width: 1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                ...batches.map(
-                  (batch) => _buildBatchCard(
-                    context: context,
-                    batch: batch,
-                  ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSummaryCard(allBatches),
+                    const SizedBox(height: 24),
+                    // Tombol filter dipindahkan ke sini
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Data Batch',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: _showFilterBottomSheet,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFC8E6C9).withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.green.shade300),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.filter_alt_outlined,
+                                    size: 16, color: Colors.green.shade800),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Filter',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green.shade900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (displayedBatches.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(
+                          child: Text(
+                            'Tidak ada batch untuk filter ini.',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        ),
+                      )
+                    else
+                      ...displayedBatches.map(
+                        (batch) => _buildBatchCard(
+                          context: context,
+                          batch: batch,
+                        ),
+                      ),
+                  ],
                 ),
-              ],
+              ),
             ),
           );
         },

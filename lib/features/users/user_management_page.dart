@@ -22,30 +22,6 @@ class UserManagementPage extends StatelessWidget {
     return normalizedRole == 'owner' || normalizedRole == 'pemilik';
   }
 
-  String _getRoleLabel(String role) {
-    if (_isOwnerRole(role)) {
-      return 'Pemilik Toko';
-    }
-
-    return 'Karyawan';
-  }
-
-  Color _getRoleColor(String role) {
-    if (_isOwnerRole(role)) {
-      return Colors.deepPurple;
-    }
-
-    return Colors.blue;
-  }
-
-  Color _getStatusColor(bool isActive) {
-    return isActive ? Colors.green : Colors.red;
-  }
-
-  String _getStatusLabel(bool isActive) {
-    return isActive ? 'Aktif' : 'Tidak Aktif';
-  }
-
   Future<void> _updateRole({
     required BuildContext context,
     required AppUserModel user,
@@ -128,108 +104,61 @@ class UserManagementPage extends StatelessWidget {
     return users.where((user) => !user.isActive).length;
   }
 
-  Widget _buildHeaderCard() {
-    return const Card(
-      color: Color(0xFF2E7D32),
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.white24,
-              child: Icon(
-                Icons.manage_accounts,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Manajemen Hak Akses',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 21,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Kelola role pengguna dan status aktif akun untuk membatasi akses fitur aplikasi.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildSummaryCard(List<AppUserModel> users) {
     final ownerCount = _countOwner(users);
     final karyawanCount = _countKaryawan(users);
     final activeCount = _countActiveUsers(users);
     final inactiveCount = _countInactiveUsers(users);
 
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFE8F5E9), // Hijau sangat pudar
+            Color(0xFFC8E6C9), // Hijau sedikit lebih pekat
+          ],
+        ),
+        border: Border.all(color: const Color(0xFFB9DFBD), width: 0.5),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Ringkasan Pengguna',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
             _buildSummaryRow(
               icon: Icons.people_outline,
               label: 'Total Pengguna',
               value: '${users.length}',
-              color: Colors.blue,
             ),
             _buildSummaryRow(
-              icon: Icons.admin_panel_settings_outlined,
+              icon: Icons.person_outline,
               label: 'Pemilik Toko',
               value: '$ownerCount',
-              color: Colors.deepPurple,
             ),
             _buildSummaryRow(
-              icon: Icons.badge_outlined,
-              label: 'Karyawan',
+              icon: Icons.person_outline,
+              label: 'karyawan',
               value: '$karyawanCount',
-              color: Colors.teal,
             ),
             _buildSummaryRow(
               icon: Icons.check_circle_outline,
               label: 'Akun Aktif',
               value: '$activeCount',
-              color: Colors.green,
             ),
             _buildSummaryRow(
-              icon: Icons.cancel_outlined,
+              icon: Icons.block,
               label: 'Akun Tidak Aktif',
               value: '$inactiveCount',
-              color: Colors.red,
             ),
             const SizedBox(height: 8),
             const Text(
               'Catatan: akun yang sedang digunakan tidak dapat dinonaktifkan dari halaman ini.',
               style: TextStyle(
-                color: Colors.black54,
-                fontSize: 12.5,
+                color: Color(0xFF6B8E70),
+                fontSize: 10,
                 height: 1.35,
               ),
             ),
@@ -243,63 +172,36 @@ class UserManagementPage extends StatelessWidget {
     required IconData icon,
     required String label,
     required String value,
-    required Color color,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
           Icon(
             icon,
-            size: 20,
-            color: color,
+            size: 18,
+            color: const Color(0xFF1B802E),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 color: Colors.black87,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
           Text(
             value,
-            style: TextStyle(
-              fontSize: 14,
-              color: color,
-              fontWeight: FontWeight.bold,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Colors.black87,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildChip({
-    required String text,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 4,
-      ),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: color.withOpacity(0.35),
-        ),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
       ),
     );
   }
@@ -310,12 +212,23 @@ class UserManagementPage extends StatelessWidget {
   }) {
     final isSelf = _isCurrentUser(user);
     final selectedRole = _isOwnerRole(user.role) ? 'owner' : 'karyawan';
-    final roleColor = _getRoleColor(user.role);
-    final statusColor = _getStatusColor(user.isActive);
 
-    return Card(
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFE8F5E9),
+            Color(0xFFC8E6C9),
+          ],
+        ),
+        border: Border.all(color: const Color(0xFFB9DFBD), width: 0.5),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -323,15 +236,15 @@ class UserManagementPage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
-                  backgroundColor: roleColor.withOpacity(0.12),
-                  child: Icon(
-                    _isOwnerRole(user.role)
-                        ? Icons.admin_panel_settings_outlined
-                        : Icons.person_outline,
-                    color: roleColor,
+                  backgroundColor: Colors.blue.shade50,
+                  radius: 20,
+                  child: const Icon(
+                    Icons.person_outline,
+                    color: Colors.blue,
+                    size: 22,
                   ),
                 ),
-                const SizedBox(width: 13),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,66 +252,77 @@ class UserManagementPage extends StatelessWidget {
                       Text(
                         user.name.isEmpty ? '(Nama belum diisi)' : user.name,
                         style: const TextStyle(
-                          fontSize: 16.5,
+                          fontSize: 14,
                           fontWeight: FontWeight.bold,
+                          color: Colors.black87,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
                         user.email,
                         style: const TextStyle(
                           color: Colors.black54,
-                          fontSize: 13,
+                          fontSize: 11,
                         ),
-                      ),
-                      const SizedBox(height: 9),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _buildChip(
-                            text: _getRoleLabel(user.role),
-                            color: roleColor,
-                          ),
-                          _buildChip(
-                            text: _getStatusLabel(user.isActive),
-                            color: statusColor,
-                          ),
-                          if (isSelf)
-                            _buildChip(
-                              text: 'Akun Saat Ini',
-                              color: Colors.orange,
-                            ),
-                        ],
                       ),
                     ],
                   ),
                 ),
+                Switch(
+                  value: user.isActive,
+                  activeColor: Colors.white,
+                  activeTrackColor: const Color(0xFF1AD426),
+                  inactiveThumbColor: Colors.white,
+                  inactiveTrackColor: Colors.grey.shade400,
+                  onChanged: isSelf
+                      ? null
+                      : (value) {
+                          _updateActiveStatus(
+                            context: context,
+                            user: user,
+                            isActive: value,
+                          );
+                        },
+                ),
               ],
             ),
-            const SizedBox(height: 18),
-            DropdownButtonFormField<String>(
+            const SizedBox(height: 12),
+            const Text(
+              'Role',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            DropdownButton<String>(
               value: selectedRole,
               isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Role Pengguna',
-                prefixIcon: Icon(Icons.security_outlined),
+              isDense: true,
+              underline: Container(
+                height: 1,
+                color: Colors.grey.shade500,
+              ),
+              icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.black87,
+                fontWeight: FontWeight.w600,
               ),
               items: const [
                 DropdownMenuItem(
-                  value: 'owner',
-                  child: Text('Pemilik Toko'),
-                ),
-                DropdownMenuItem(
                   value: 'karyawan',
                   child: Text('Karyawan'),
+                ),
+                DropdownMenuItem(
+                  value: 'owner',
+                  child: Text('Pemilik Toko'),
                 ),
               ],
               onChanged: isSelf
                   ? null
                   : (value) {
                       if (value == null) return;
-
                       _updateRole(
                         context: context,
                         user: user,
@@ -406,44 +330,14 @@ class UserManagementPage extends StatelessWidget {
                       );
                     },
             ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF6F8F6),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.grey.shade200,
-                ),
-              ),
-              child: SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Status Akun Aktif',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                subtitle: Text(
-                  isSelf
-                      ? 'Akun yang sedang digunakan tidak dapat dinonaktifkan dari halaman ini.'
-                      : 'Nonaktifkan akun untuk membatasi akses pengguna ke aplikasi.',
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    height: 1.35,
-                  ),
-                ),
-                value: user.isActive,
-                activeColor: Colors.green,
-                onChanged: isSelf
-                    ? null
-                    : (value) {
-                        _updateActiveStatus(
-                          context: context,
-                          user: user,
-                          isActive: value,
-                        );
-                      },
+            const SizedBox(height: 8),
+            Text(
+              isSelf
+                  ? 'Akun sedang digunakan tidak dapat dinonaktifkan.'
+                  : 'Nonaktifkan akun untuk membatasi akses pengguna ke aplikasi.',
+              style: const TextStyle(
+                fontSize: 10,
+                color: Color(0xFF6B8E70),
               ),
             ),
           ],
@@ -452,57 +346,13 @@ class UserManagementPage extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionTitle() {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Daftar Pengguna',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        SizedBox(height: 4),
-        Text(
-          'Owner dapat mengubah role dan status aktif pengguna lain.',
-          style: TextStyle(
-            color: Colors.black54,
-            fontSize: 13,
-            height: 1.3,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildEmptyState() {
     return const Center(
       child: Padding(
         padding: EdgeInsets.all(24),
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(18),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.people_outline,
-                  color: Colors.grey,
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Belum ada data pengguna.',
-                    style: TextStyle(
-                      color: Colors.black87,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        child: Text(
+          'Belum ada data pengguna.',
+          style: TextStyle(color: Colors.black54, fontSize: 14),
         ),
       ),
     );
@@ -512,17 +362,10 @@ class UserManagementPage extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Text(
-              'Gagal memuat data pengguna: $error',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.red,
-              ),
-            ),
-          ),
+        child: Text(
+          'Gagal memuat data pengguna: $error',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.red),
         ),
       ),
     );
@@ -530,15 +373,48 @@ class UserManagementPage extends StatelessWidget {
 
   Widget _buildLoadingState() {
     return const Center(
-      child: CircularProgressIndicator(),
+      child: CircularProgressIndicator(color: Colors.green),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // BACKGROUND DIUBAH MENJADI PUTIH F5F5F5
+      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        title: const Text('Manajemen Hak Akses'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.keyboard_double_arrow_left,
+              color: Colors.white, size: 28),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text(
+          'MANAJEMEN HAK AKSES',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            letterSpacing: 0.5,
+          ),
+        ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                Color(0xFF0F6022), // Hijau tua kiri
+                Color(0xFF38B24C), // Hijau terang kanan
+              ],
+            ),
+            borderRadius: BorderRadius.vertical(
+              bottom: Radius.circular(20),
+            ),
+          ),
+        ),
       ),
       body: StreamBuilder<List<AppUserModel>>(
         stream: _userRepository.getUsersStream(),
@@ -563,23 +439,50 @@ class UserManagementPage extends StatelessWidget {
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 620),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildHeaderCard(),
-                      const SizedBox(height: 12),
-                      _buildSummaryCard(users),
-                      const SizedBox(height: 20),
-                      _buildSectionTitle(),
-                      const SizedBox(height: 12),
-                      ...users.map(
-                        (user) => _buildUserCard(
-                          context: context,
-                          user: user,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF9F9F9),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'Ringkasan Pengguna',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildSummaryCard(users),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Daftar Pengguna',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ...users.map(
+                          (user) => _buildUserCard(
+                            context: context,
+                            user: user,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

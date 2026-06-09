@@ -73,6 +73,7 @@ flutter:
       - assets/login/
       - assets/stockout/
       - assets/batch/
+      - assets/transaction/
  
 
 

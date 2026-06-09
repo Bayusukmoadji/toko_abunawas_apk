@@ -93,11 +93,11 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 
   Color _getTransactionColor(String type) {
     if (type == 'stock_in') {
-      return Colors.green;
+      return Colors.green.shade600;
     }
 
     if (type == 'stock_out') {
-      return Colors.red;
+      return Colors.red.shade400;
     }
 
     return Colors.grey;
@@ -187,6 +187,18 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
             start: DateTime(now.year, now.month, 1),
             end: now,
           ),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Colors.green.shade700,
+              onPrimary: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
 
     if (picked != null) {
@@ -446,177 +458,188 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildHeaderCard() {
-    return const Card(
-      color: Color(0xFF2E7D32),
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.white24,
-              child: Icon(
-                Icons.receipt_long,
-                color: Colors.white,
-              ),
+  Widget _buildSectionTitle({
+    required String title,
+    required String subtitle,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Colors.black87,
             ),
-            SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Riwayat Transaksi',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 21,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Pantau transaksi stok masuk dan stok keluar berdasarkan produk serta periode tertentu.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.black54,
+              height: 1.3,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildFilterSection() {
-    final selectedProductName = _getSelectedProductName();
     final selectedPeriodText = _getSelectedPeriodText();
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Filter Transaksi',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle(
+          title: 'Filter Transaksi',
+          subtitle:
               'Gunakan filter untuk melihat transaksi berdasarkan produk/merk dan periode tertentu.',
-              style: TextStyle(
-                color: Colors.black54,
-                fontSize: 13,
-                height: 1.3,
-              ),
+        ),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/batch/cardsum.png'),
+              fit: BoxFit.fill,
             ),
-            const SizedBox(height: 18),
-            DropdownButtonFormField<String>(
-              value: _selectedProductId,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Produk / Merk Beras',
-                prefixIcon: Icon(Icons.rice_bowl_outlined),
-              ),
-              items: [
-                const DropdownMenuItem<String>(
-                  value: _allProductsValue,
-                  child: Text('Semua Produk'),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Dropdown Produk
+              DropdownButtonFormField<String>(
+                value: _selectedProductId,
+                isExpanded: true,
+                icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
+                decoration: const InputDecoration(
+                  labelText: 'Produk / Merk Beras',
+                  labelStyle: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                    fontSize: 14,
+                  ),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.black26),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.green),
+                  ),
                 ),
-                ..._products.map(
-                  (product) {
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: _allProductsValue,
+                    child: Text('Semua Produk', style: TextStyle(fontSize: 13)),
+                  ),
+                  ..._products.map((product) {
                     return DropdownMenuItem<String>(
                       value: product.id,
                       child: Text(
                         product.name,
+                        style: const TextStyle(fontSize: 13),
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
-                  },
-                ),
-              ],
-              onChanged: _isLoadingProducts
-                  ? null
-                  : (value) {
-                      if (value == null) return;
-
-                      setState(() {
-                        _selectedProductId = value;
-                      });
-                    },
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _pickDateRange,
-              icon: const Icon(Icons.date_range),
-              label: Text(selectedPeriodText),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: _resetFilter,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reset Filter'),
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF6F8F6),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: Colors.grey.shade200,
-                ),
+                  }),
+                ],
+                onChanged: _isLoadingProducts
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _selectedProductId = value;
+                        });
+                      },
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 16),
+
+              // Tombol Filter (Menggunakan botcard.png)
+              Row(
                 children: [
-                  _buildSmallInfoRow(
-                    icon: Icons.inventory_2_outlined,
-                    text: 'Produk dipilih: $selectedProductName',
+                  Expanded(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        image: DecorationImage(
+                          image: AssetImage('assets/transaction/botcard.png'),
+                          fit: BoxFit.fill,
+                        ),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: _pickDateRange,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.calendar_month,
+                                    size: 16, color: Colors.white),
+                                const SizedBox(width: 6),
+                                Text(
+                                  selectedPeriodText == 'Semua Periode'
+                                      ? selectedPeriodText
+                                      : 'Ubah Periode',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 6),
-                  _buildSmallInfoRow(
-                    icon: Icons.calendar_month_outlined,
-                    text: 'Periode dipilih: $selectedPeriodText',
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        image: DecorationImage(
+                          image: AssetImage('assets/transaction/botcard.png'),
+                          fit: BoxFit.fill,
+                        ),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: _resetFilter,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.refresh,
+                                    size: 16, color: Colors.white),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Reset Filter',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSmallInfoRow({
-    required IconData icon,
-    required String text,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          icon,
-          size: 17,
-          color: Colors.black45,
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              fontSize: 12.8,
-              color: Colors.black87,
-              height: 1.3,
-            ),
+            ],
           ),
         ),
       ],
@@ -628,206 +651,168 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     final totalStockOut = _calculateTotalStockOut(transactions);
     final netStock = totalStockIn - totalStockOut;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Ringkasan Transaksi',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _buildSummaryRow(
-              icon: Icons.receipt_long,
-              label: 'Jumlah Transaksi',
-              value: '${transactions.length}',
-              color: Colors.blue,
-            ),
-            _buildSummaryRow(
-              icon: Icons.arrow_downward,
-              label: 'Total Stok Masuk',
-              value: '$totalStockIn karung',
-              color: Colors.green,
-            ),
-            _buildSummaryRow(
-              icon: Icons.arrow_upward,
-              label: 'Total Stok Keluar',
-              value: '$totalStockOut karung',
-              color: Colors.red,
-            ),
-            _buildSummaryRow(
-              icon: Icons.compare_arrows,
-              label: 'Selisih Periode',
-              value: '$netStock karung',
-              color: netStock >= 0 ? Colors.green : Colors.red,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Catatan: ringkasan ini mengikuti filter produk dan periode yang dipilih.',
-              style: TextStyle(
-                color: Colors.black54,
-                fontSize: 12.5,
-                height: 1.3,
-              ),
-            ),
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Ringkasan Batch',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
         ),
-      ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/batch/cardsum.png'),
+              fit: BoxFit.fill,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSummaryRow(
+                  label: 'Jumlah Transaksi', value: '${transactions.length}'),
+              _buildSummaryRow(
+                  label: 'Total Stok Masuk', value: '$totalStockIn Karung'),
+              _buildSummaryRow(
+                  label: 'Total Stok Keluar', value: '$totalStockOut Karung'),
+              _buildSummaryRow(
+                  label: 'Selisih Periode',
+                  value: '$netStock Karung',
+                  isLast: true),
+
+              const SizedBox(height: 8),
+              const Text(
+                'Catatan: Ringkasan ini mengikuti filter produk dan periode yang dipilih.',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontSize: 9.5,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Tombol PDF (Menggunakan botpdf.png)
+              Center(
+                child: Opacity(
+                  opacity: transactions.isEmpty
+                      ? 0.6
+                      : 1.0, // Efek transparan jika disabled
+                  child: Container(
+                    width: double.infinity,
+                    height: 42,
+                    decoration: const BoxDecoration(
+                      image: DecorationImage(
+                        image: AssetImage('assets/transaction/botpdf.png'),
+                        fit: BoxFit.fill,
+                      ),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: transactions.isEmpty
+                            ? null
+                            : () {
+                                _generateTransactionPdf(
+                                  context: context,
+                                  transactions: transactions,
+                                );
+                              },
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.picture_as_pdf_rounded,
+                                size: 18, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text(
+                              'Generate PDF Laporan Transaksi',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildSummaryRow({
-    required IconData icon,
     required String label,
     required String value,
-    required Color color,
+    bool isLast = false,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 20,
-            color: color,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.black87,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
               ),
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGeneratePdfButton(List<TransactionModel> filteredTransactions) {
-    return SizedBox(
-      height: 50,
-      child: ElevatedButton.icon(
-        onPressed: filteredTransactions.isEmpty
-            ? null
-            : () {
-                _generateTransactionPdf(
-                  context: context,
-                  transactions: filteredTransactions,
-                );
-              },
-        icon: const Icon(Icons.picture_as_pdf),
-        label: const Text('Generate PDF Laporan Transaksi'),
-      ),
-    );
-  }
-
-  Widget _buildTransactionCard(TransactionModel transaction) {
-    final transactionDate = transaction.createdAt.toDate();
-    final color = _getTransactionColor(transaction.type);
-    final typeText = _getTransactionTypeText(transaction.type);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: color.withOpacity(0.14),
-              child: Icon(
-                _getTransactionIcon(transaction.type),
-                color: color,
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
               ),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      _buildTypeChip(
-                        text: typeText,
-                        color: color,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    transaction.productName,
-                    style: const TextStyle(
-                      fontSize: 15.5,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildTransactionInfo(
-                    icon: Icons.calendar_month_outlined,
-                    text: 'Tanggal: ${_formatDateTime(transactionDate)}',
-                  ),
-                  _buildTransactionInfo(
-                    icon: Icons.qr_code_2,
-                    text: 'Kode Batch: ${transaction.batchCode}',
-                  ),
-                  _buildTransactionInfo(
-                    icon: Icons.inventory_2_outlined,
-                    text: 'Jumlah: ${transaction.qty} ${transaction.unit}',
-                  ),
-                  _buildTransactionInfo(
-                    icon: Icons.person_outline,
-                    text: 'Dilakukan oleh: ${transaction.performedByName}',
-                  ),
-                  _buildTransactionInfo(
-                    icon: Icons.notes_outlined,
-                    text:
-                        'Catatan: ${transaction.notes.isEmpty ? '-' : transaction.notes}',
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+        if (!isLast)
+          const Divider(
+            color: Colors.black38,
+            thickness: 0.5,
+            height: 8,
+          ),
+      ],
     );
   }
 
-  Widget _buildTypeChip({
+  Widget _buildStatusChip({
     required String text,
     required Color color,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: 9,
+        horizontal: 10,
         vertical: 4,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(16),
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: color.withOpacity(0.35),
+          color: color.withOpacity(0.4),
         ),
       ),
       child: Text(
         text,
         style: TextStyle(
           color: color,
-          fontSize: 12,
+          fontSize: 10.5,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -839,21 +824,148 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     required String text,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(top: 5),
+      padding: const EdgeInsets.only(top: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             icon,
-            size: 17,
+            size: 13,
             color: Colors.black45,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               text,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 10.0,
+                color: Colors.black54,
+                height: 1.2,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTransactionCard(TransactionModel transaction) {
+    final transactionDate = transaction.createdAt.toDate();
+    final color = _getTransactionColor(transaction.type);
+    final typeText = _getTransactionTypeText(transaction.type);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      constraints: const BoxConstraints(minHeight: 110),
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage('assets/batch/cardbatch.png'),
+          fit: BoxFit.fill,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: color.withOpacity(0.15),
+                  child: Icon(
+                    _getTransactionIcon(transaction.type),
+                    size: 16,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        transaction.productName,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const SizedBox(width: 42),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTransactionInfo(
+                        icon: Icons.calendar_today_outlined,
+                        text: 'Tanggal: ${_formatDateTime(transactionDate)}',
+                      ),
+                      _buildTransactionInfo(
+                        icon: Icons.qr_code_2,
+                        text: 'Kode Batch: ${transaction.batchCode}',
+                      ),
+                      _buildTransactionInfo(
+                        icon: Icons.inventory_2_outlined,
+                        text: 'Jumlah: ${transaction.qty} ${transaction.unit}',
+                      ),
+                      _buildTransactionInfo(
+                        icon: Icons.person_outline,
+                        text: 'Dilakukan oleh: ${transaction.performedByName}',
+                      ),
+                      if (transaction.notes.trim().isNotEmpty)
+                        _buildTransactionInfo(
+                          icon: Icons.notes_outlined,
+                          text: 'Catatan: ${transaction.notes}',
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _buildStatusChip(text: typeText, color: color),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyFilteredResult() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.search_off,
+            color: Colors.orange.shade600,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Tidak ada transaksi yang sesuai dengan filter yang dipilih.',
+              style: TextStyle(
+                fontSize: 12,
                 color: Colors.black87,
                 height: 1.3,
               ),
@@ -864,63 +976,42 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildEmptyFilteredResult() {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.search_off,
-              color: Colors.orange,
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Tidak ada transaksi yang sesuai dengan filter yang dipilih.',
-                style: TextStyle(
-                  color: Colors.black87,
-                  height: 1.35,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildEmptyTransactionResult() {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.receipt_long,
-              color: Colors.grey,
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Belum ada riwayat transaksi.',
-                style: TextStyle(
-                  color: Colors.black87,
-                  height: 1.35,
-                ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.receipt_long,
+            color: Colors.grey,
+            size: 24,
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Belum ada riwayat transaksi.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.black87,
+                height: 1.3,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildLoadingState() {
     return const Center(
-      child: CircularProgressIndicator(),
+      child: CircularProgressIndicator(color: Colors.green),
     );
   }
 
@@ -928,15 +1019,19 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Text(
-              'Gagal memuat riwayat transaksi: $error',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.red,
-              ),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.red.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.red.shade200),
+          ),
+          child: Text(
+            'Gagal memuat riwayat transaksi: $error',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.red.shade700,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -949,25 +1044,13 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     required List<TransactionModel> filteredTransactions,
   }) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Daftar Transaksi',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+        _buildSectionTitle(
+          title: 'Daftar Transaksi',
+          subtitle:
+              'Transaksi yang tampil mengikuti filter produk dan periode yang dipilih.',
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'Transaksi yang tampil mengikuti filter produk dan periode yang dipilih.',
-          style: TextStyle(
-            color: Colors.black54,
-            fontSize: 13,
-            height: 1.3,
-          ),
-        ),
-        const SizedBox(height: 12),
         if (allTransactions.isEmpty)
           _buildEmptyTransactionResult()
         else if (filteredTransactions.isEmpty)
@@ -981,8 +1064,47 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Riwayat Transaksi'),
+      backgroundColor: const Color(0xFFFAFAFA),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(60.0),
+        child: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.keyboard_double_arrow_left,
+                color: Colors.white),
+            onPressed: () {
+              Navigator.pop(context);
+            },
+          ),
+          title: const Text(
+            'RIWAYAT TRANSAKSI',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              letterSpacing: 1.2,
+            ),
+          ),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF015816),
+                  Color(0xFF038E1B),
+                  Color(0xFF84E977),
+                ],
+                stops: [0.0, 0.5, 1.0],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(20),
+              ),
+            ),
+          ),
+        ),
       ),
       body: StreamBuilder<List<TransactionModel>>(
         stream: _transactionRepository.getTransactionsStream(),
@@ -1001,28 +1123,35 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 
           return SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 620),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildHeaderCard(),
-                      const SizedBox(height: 12),
-                      _buildFilterSection(),
-                      const SizedBox(height: 12),
-                      _buildSummary(filteredTransactions),
-                      const SizedBox(height: 12),
-                      _buildGeneratePdfButton(filteredTransactions),
-                      const SizedBox(height: 20),
-                      _buildTransactionList(
-                        allTransactions: allTransactions,
-                        filteredTransactions: filteredTransactions,
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                  ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.black12, width: 1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFilterSection(),
+                    const SizedBox(height: 24),
+                    _buildSummary(filteredTransactions),
+                    const SizedBox(height: 24),
+                    _buildTransactionList(
+                      allTransactions: allTransactions,
+                      filteredTransactions: filteredTransactions,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                 ),
               ),
             ),

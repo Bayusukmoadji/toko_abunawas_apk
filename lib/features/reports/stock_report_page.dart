@@ -31,14 +31,14 @@ class StockReportPage extends StatelessWidget {
     final status = _getStockStatus(product);
 
     if (status == 'Habis') {
-      return Colors.red;
+      return Colors.red.shade400;
     }
 
     if (status == 'Menipis') {
-      return Colors.orange;
+      return Colors.orange.shade500;
     }
 
-    return Colors.green;
+    return Colors.green.shade600;
   }
 
   IconData _getStockStatusIcon(ProductModel product) {
@@ -63,6 +63,14 @@ class StockReportPage extends StatelessWidget {
     final minute = dateTime.minute.toString().padLeft(2, '0');
 
     return '$day/$month/$year $hour:$minute';
+  }
+
+  // Fungsi untuk memformat angka dengan pemisah ribuan (misal: 4250 -> 4.250)
+  String _formatNumber(int number) {
+    return number.toString().replaceAllMapped(
+          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+          (Match m) => '${m[1]}.',
+        );
   }
 
   List<ProductModel> _sortProducts(List<ProductModel> products) {
@@ -157,7 +165,7 @@ class StockReportPage extends StatelessWidget {
                   pw.SizedBox(height: 6),
                   pw.Text('Jumlah produk aktif: $totalProducts'),
                   pw.Text('Total stok: $totalSacks karung'),
-                  pw.Text('Estimasi total berat: $totalKg kg'),
+                  pw.Text('Estimasi total berat: ${_formatNumber(totalKg)} kg'),
                   pw.Text('Produk stok menipis: $lowStockCount'),
                   pw.Text('Produk stok habis: $emptyStockCount'),
                   pw.SizedBox(height: 6),
@@ -198,7 +206,7 @@ class StockReportPage extends StatelessWidget {
                   product.name,
                   '${product.totalStock} ${product.unit}',
                   '${product.minimumStock} ${product.unit}',
-                  '$productTotalKg kg',
+                  '${_formatNumber(productTotalKg)} kg',
                   status,
                 ];
               }),
@@ -267,53 +275,7 @@ class StockReportPage extends StatelessWidget {
     );
   }
 
-  Widget _buildHeaderCard() {
-    return const Card(
-      color: Color(0xFF2E7D32),
-      child: Padding(
-        padding: EdgeInsets.all(18),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.white24,
-              child: Icon(
-                Icons.assessment_outlined,
-                color: Colors.white,
-              ),
-            ),
-            SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Laporan Stok Tersisa',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 21,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Pantau kondisi stok terbaru, status persediaan, dan estimasi berat beras dalam kilogram.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryCard(List<ProductModel> products) {
+  Widget _buildSummaryCard(BuildContext context, List<ProductModel> products) {
     final totalProducts = products.length;
     final totalSacks = _getTotalSacks(products);
     final totalKg = totalSacks * sackWeightKg;
@@ -321,125 +283,145 @@ class StockReportPage extends StatelessWidget {
     final emptyStockCount = _getEmptyStockCount(products);
     final safeStockCount = totalProducts - lowStockCount - emptyStockCount;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Ringkasan Stok',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _buildSummaryRow(
-              icon: Icons.inventory_2_outlined,
-              label: 'Jumlah Produk Aktif',
-              value: '$totalProducts',
-              color: Colors.blue,
-            ),
-            _buildSummaryRow(
-              icon: Icons.shopping_bag_outlined,
-              label: 'Total Stok',
-              value: '$totalSacks karung',
-              color: Colors.green,
-            ),
-            _buildSummaryRow(
-              icon: Icons.scale_outlined,
-              label: 'Estimasi Total Berat',
-              value: '$totalKg kg',
-              color: Colors.teal,
-            ),
-            _buildSummaryRow(
-              icon: Icons.check_circle_outline,
-              label: 'Produk Aman',
-              value: '$safeStockCount',
-              color: Colors.green,
-            ),
-            _buildSummaryRow(
-              icon: Icons.warning_amber_rounded,
-              label: 'Produk Menipis',
-              value: '$lowStockCount',
-              color: Colors.orange,
-            ),
-            _buildSummaryRow(
-              icon: Icons.cancel_outlined,
-              label: 'Produk Habis',
-              value: '$emptyStockCount',
-              color: Colors.red,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Catatan: setiap karung diasumsikan berisi 50 kg beras. Laporan ini menampilkan kondisi stok terbaru saat halaman dibuka.',
-              style: TextStyle(
-                color: Colors.black54,
-                fontSize: 12.5,
-                height: 1.35,
-              ),
-            ),
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Ringkasan Batch',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
         ),
-      ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            image: DecorationImage(
+              image: AssetImage('assets/batch/cardsum.png'),
+              fit: BoxFit.fill,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSummaryRow(
+                  label: 'Jumlah Produk Aktif', value: '$totalProducts'),
+              _buildSummaryRow(
+                  label: 'Total Stok', value: '$totalSacks karung'),
+              _buildSummaryRow(
+                  label: 'Total Berat', value: '${_formatNumber(totalKg)} kg'),
+              _buildSummaryRow(label: 'Produk Aman', value: '$safeStockCount'),
+              _buildSummaryRow(
+                  label: 'Produk Menipis', value: '$lowStockCount'),
+              _buildSummaryRow(
+                  label: 'Produk Habis',
+                  value: '$emptyStockCount',
+                  isLast: true),
+
+              const SizedBox(height: 10),
+              const Text(
+                'Catatan: Setiap karung berisi 50kg beras. Laporan ini menampilkan kondisi stok terbaru saat halaman dibuka.',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontSize: 9.5,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Tombol PDF (Menggunakan botpdf.png)
+              Center(
+                child: Opacity(
+                  opacity: products.isEmpty ? 0.6 : 1.0,
+                  child: Container(
+                    width: double.infinity,
+                    height: 42,
+                    decoration: const BoxDecoration(
+                      image: DecorationImage(
+                        image: AssetImage('assets/transaction/botpdf.png'),
+                        fit: BoxFit.fill,
+                      ),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: products.isEmpty
+                            ? null
+                            : () {
+                                _generatePdf(
+                                  context: context,
+                                  products: products,
+                                );
+                              },
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.picture_as_pdf_rounded,
+                                size: 18, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text(
+                              'Generate PDF Laporan Stok',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildSummaryRow({
-    required IconData icon,
     required String label,
     required String value,
-    required Color color,
+    bool isLast = false,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 20,
-            color: color,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.black87,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
               ),
-            ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
+        ),
+        if (!isLast)
+          const Divider(
+            color: Colors.black38,
+            thickness: 0.5,
+            height: 8,
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGeneratePdfButton({
-    required BuildContext context,
-    required List<ProductModel> products,
-  }) {
-    return SizedBox(
-      height: 50,
-      child: ElevatedButton.icon(
-        onPressed: () {
-          _generatePdf(
-            context: context,
-            products: products,
-          );
-        },
-        icon: const Icon(Icons.picture_as_pdf),
-        label: const Text('Generate PDF Laporan Stok'),
-      ),
+      ],
     );
   }
 
@@ -448,62 +430,88 @@ class StockReportPage extends StatelessWidget {
     final statusColor = _getStockStatusColor(product);
     final totalKg = product.totalStock * sackWeightKg;
 
-    return Card(
-      color: statusColor.withOpacity(0.07),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      constraints: const BoxConstraints(minHeight: 110),
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage('assets/batch/cardbatch.png'),
+          fit: BoxFit.fill,
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircleAvatar(
-              backgroundColor: statusColor.withOpacity(0.14),
-              child: Icon(
-                _getStockStatusIcon(product),
-                color: statusColor,
-              ),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.name,
-                    style: const TextStyle(
-                      fontSize: 15.5,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  _buildStatusChip(
-                    text: status,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: statusColor.withOpacity(0.15),
+                  child: Icon(
+                    _getStockStatusIcon(product),
+                    size: 16,
                     color: statusColor,
                   ),
-                  const SizedBox(height: 9),
-                  _buildInfoText(
-                    icon: Icons.qr_code_2,
-                    text: 'Kode produk: ${product.code}',
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product.name,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ],
                   ),
-                  _buildInfoText(
-                    icon: Icons.category_outlined,
-                    text: 'Kategori: ${product.category}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const SizedBox(width: 42),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildInfoText(
+                        icon: Icons.qr_code_2,
+                        text: 'Kode produk: ${product.code}',
+                      ),
+                      _buildInfoText(
+                        icon: Icons.category_outlined,
+                        text: 'Kategori: ${product.category}',
+                      ),
+                      _buildInfoText(
+                        icon: Icons.inventory_2_outlined,
+                        text:
+                            'Stok saat ini: ${product.totalStock} ${product.unit}',
+                      ),
+                      _buildInfoText(
+                        icon: Icons.low_priority_outlined,
+                        text:
+                            'Minimum stok: ${product.minimumStock} ${product.unit}',
+                      ),
+                      _buildInfoText(
+                        icon: Icons.scale_outlined,
+                        text: 'Berat: ${_formatNumber(totalKg)} kg',
+                      ),
+                    ],
                   ),
-                  _buildInfoText(
-                    icon: Icons.inventory_2_outlined,
-                    text:
-                        'Stok saat ini: ${product.totalStock} ${product.unit}',
-                  ),
-                  _buildInfoText(
-                    icon: Icons.low_priority_outlined,
-                    text:
-                        'Minimum stok: ${product.minimumStock} ${product.unit}',
-                  ),
-                  _buildInfoText(
-                    icon: Icons.scale_outlined,
-                    text: 'Estimasi berat: $totalKg kg',
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                _buildStatusChip(text: status, color: statusColor),
+              ],
             ),
           ],
         ),
@@ -517,21 +525,21 @@ class StockReportPage extends StatelessWidget {
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(
-        horizontal: 9,
+        horizontal: 10,
         vertical: 4,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(16),
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: color.withOpacity(0.35),
+          color: color.withOpacity(0.4),
         ),
       ),
       child: Text(
         text,
         style: TextStyle(
           color: color,
-          fontSize: 12,
+          fontSize: 10.5,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -543,23 +551,24 @@ class StockReportPage extends StatelessWidget {
     required String text,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(top: 5),
+      padding: const EdgeInsets.only(top: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             icon,
-            size: 17,
+            size: 13,
             color: Colors.black45,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               text,
               style: const TextStyle(
-                fontSize: 13,
-                color: Colors.black87,
-                height: 1.3,
+                fontSize: 10.0,
+                color: Colors.black54,
+                height: 1.2,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -576,7 +585,8 @@ class StockReportPage extends StatelessWidget {
           'Daftar Stok Produk',
           style: TextStyle(
             fontSize: 18,
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
           ),
         ),
         SizedBox(height: 4),
@@ -584,8 +594,8 @@ class StockReportPage extends StatelessWidget {
           'Produk diurutkan berdasarkan prioritas status: habis, menipis, lalu aman.',
           style: TextStyle(
             color: Colors.black54,
-            fontSize: 13,
-            height: 1.3,
+            fontSize: 11,
+            height: 1.2,
           ),
         ),
       ],
@@ -593,33 +603,34 @@ class StockReportPage extends StatelessWidget {
   }
 
   Widget _buildEmptyState() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(18),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.inventory_2_outlined,
-                  color: Colors.grey,
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Belum ada data produk aktif.',
-                    style: TextStyle(
-                      color: Colors.black87,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ],
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.inventory_2_outlined,
+            color: Colors.grey,
+            size: 24,
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Belum ada data produk aktif.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.black87,
+                height: 1.3,
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -628,15 +639,19 @@ class StockReportPage extends StatelessWidget {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Text(
-              'Gagal memuat data stok: $error',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.red,
-              ),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.red.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.red.shade200),
+          ),
+          child: Text(
+            'Gagal memuat data stok: $error',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.red.shade700,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
@@ -646,15 +661,54 @@ class StockReportPage extends StatelessWidget {
 
   Widget _buildLoadingState() {
     return const Center(
-      child: CircularProgressIndicator(),
+      child: CircularProgressIndicator(color: Colors.green),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Laporan Stok Tersisa'),
+      backgroundColor: const Color(0xFFFAFAFA),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(60.0),
+        child: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.keyboard_double_arrow_left,
+                color: Colors.white),
+            onPressed: () {
+              Navigator.pop(context);
+            },
+          ),
+          title: const Text(
+            'LAPORAN STOK',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              letterSpacing: 1.2,
+            ),
+          ),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF015816),
+                  Color(0xFF038E1B),
+                  Color(0xFF84E977),
+                ],
+                stops: [0.0, 0.5, 1.0],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(20),
+              ),
+            ),
+          ),
+        ),
       ),
       body: StreamBuilder<List<ProductModel>>(
         stream: _productRepository.getActiveProductsStream(),
@@ -669,36 +723,40 @@ class StockReportPage extends StatelessWidget {
 
           final products = snapshot.data ?? [];
 
-          if (products.isEmpty) {
-            return _buildEmptyState();
-          }
-
-          final sortedProducts = _sortProducts(products);
+          final sortedProducts =
+              products.isNotEmpty ? _sortProducts(products) : <ProductModel>[];
 
           return SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 620),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildHeaderCard(),
-                      const SizedBox(height: 12),
-                      _buildSummaryCard(sortedProducts),
-                      const SizedBox(height: 12),
-                      _buildGeneratePdfButton(
-                        context: context,
-                        products: sortedProducts,
-                      ),
-                      const SizedBox(height: 20),
-                      _buildSectionTitle(),
-                      const SizedBox(height: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.black12, width: 1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSummaryCard(context, sortedProducts),
+                    const SizedBox(height: 24),
+                    _buildSectionTitle(),
+                    const SizedBox(height: 12),
+                    if (sortedProducts.isEmpty)
+                      _buildEmptyState()
+                    else
                       ...sortedProducts.map(_buildProductStockCard),
-                      const SizedBox(height: 12),
-                    ],
-                  ),
+                    const SizedBox(height: 12),
+                  ],
                 ),
               ),
             ),

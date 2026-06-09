@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+// Tambahan import untuk fitur print
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../data/models/batch_model.dart';
 
@@ -77,10 +81,83 @@ class BatchDetailPage extends StatelessWidget {
     );
   }
 
+  // --- Fungsi Baru: Print QR Code ke PDF/Printer Fisik ---
+  Future<void> _printQrCode(BuildContext context) async {
+    try {
+      final doc = pw.Document();
+
+      doc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return pw.Center(
+              child: pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.center,
+                children: [
+                  pw.Text(
+                    'LABEL BATCH',
+                    style: pw.TextStyle(
+                      fontSize: 24,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 30),
+                  // Membuat QR Code langsung di dalam PDF
+                  pw.BarcodeWidget(
+                    barcode: pw.Barcode.qrCode(),
+                    data: batch.qrCodeValue,
+                    width: 250,
+                    height: 250,
+                  ),
+                  pw.SizedBox(height: 30),
+                  pw.Text(
+                    batch.productName,
+                    style: pw.TextStyle(
+                      fontSize: 22,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 10),
+                  pw.Text(
+                    'Kode Batch: ${batch.batchCode}',
+                    style: const pw.TextStyle(
+                      fontSize: 18,
+                    ),
+                  ),
+                  pw.SizedBox(height: 10),
+                  pw.Text(
+                    'Lokasi: ${batch.storageLocation.trim().isEmpty ? "-" : batch.storageLocation}',
+                    style: const pw.TextStyle(
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+
+      // Membuka dialog print bawaan sistem (iOS/Android)
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => doc.save(),
+        name: 'Label_Batch_${batch.batchCode}',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal mencetak: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildTopInfoBanner() {
     return Image.asset(
       'assets/batch/info.png',
-      // Menggunakan constraint tinggi tetap agar gambar tidak kebesaran/melar di HP
       height: 52,
       fit: BoxFit.contain,
     );
@@ -94,7 +171,6 @@ class BatchDetailPage extends StatelessWidget {
     final displayValue = value.trim().isEmpty ? '-' : value.trim();
 
     return Padding(
-      // Padding dikurangi drastis agar lebih rapat dan hemat ruang
       padding: const EdgeInsets.only(bottom: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,26 +248,31 @@ class BatchDetailPage extends StatelessWidget {
                   height: 55,
                   child: Row(
                     children: [
+                      // Tombol Back di Kiri
                       IconButton(
                         icon: const Icon(Icons.keyboard_double_arrow_left,
                             color: Colors.white, size: 28),
                         onPressed: () => Navigator.pop(context),
                       ),
+                      // Teks Judul otomatis di tengah karena seimbang dengan tombol print di kanan
                       const Expanded(
                         child: Center(
-                          child: Padding(
-                            padding: EdgeInsets.only(right: 48.0),
-                            child: Text(
-                              'DETAIL BATCH',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                letterSpacing: 1.2,
-                              ),
+                          child: Text(
+                            'DETAIL BATCH',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              letterSpacing: 1.2,
                             ),
                           ),
                         ),
+                      ),
+                      // Tombol Print Baru di Kanan
+                      IconButton(
+                        icon: const Icon(Icons.print_rounded,
+                            color: Colors.white, size: 24),
+                        onPressed: () => _printQrCode(context),
                       ),
                     ],
                   ),
@@ -211,8 +292,6 @@ class BatchDetailPage extends StatelessWidget {
       ),
       body: SafeArea(
         top: false,
-        // Dihapus: SingleChildScrollView.
-        // Diganti dengan Column yang akan mengambil tinggi layar secara mutlak.
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
           child: Container(
@@ -247,8 +326,6 @@ class BatchDetailPage extends StatelessWidget {
                 ),
 
                 // --- QR Code Dinamis ---
-                // Expanded akan menyerap seluruh sisa ruang tengah yang ada,
-                // sehingga QR code akan mengecil dengan sendirinya menyesuaikan HP.
                 Expanded(
                   child: Center(
                     child: Column(
@@ -256,9 +333,8 @@ class BatchDetailPage extends StatelessWidget {
                       children: [
                         Flexible(
                           child: LayoutBuilder(builder: (context, constraints) {
-                            // Menghitung ukuran dinamis agar tidak memakan ruang
                             double size = constraints.maxHeight;
-                            if (size > 140) size = 140; // Max 140
+                            if (size > 140) size = 140;
 
                             return SizedBox(
                               width: size,
@@ -338,8 +414,7 @@ class BatchDetailPage extends StatelessWidget {
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize:
-                        MainAxisSize.min, // Membuat Card sepadat mungkin
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         'Informasi Batch',

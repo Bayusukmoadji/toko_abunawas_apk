@@ -26,8 +26,13 @@ class ProductModel {
       code: map['code'] ?? '',
       category: map['category'] ?? '',
       unit: map['unit'] ?? '',
-      minimumStock: map['minimumStock'] ?? 0,
-      totalStock: map['totalStock'] ?? 0,
+
+      // Aman untuk field baru minimumStock dan field lama minStock
+      minimumStock: _toInt(map['minimumStock'] ?? map['minStock']),
+
+      // Total stok produk dari Firestore
+      totalStock: _toInt(map['totalStock']),
+
       isActive: map['isActive'] ?? true,
     );
   }
@@ -42,5 +47,21 @@ class ProductModel {
       'totalStock': totalStock,
       'isActive': isActive,
     };
+  }
+
+  static int _toInt(dynamic value) {
+    if (value == null) return 0;
+
+    if (value is int) return value;
+
+    if (value is double) return value.toInt();
+
+    if (value is num) return value.toInt();
+
+    if (value is String) {
+      return int.tryParse(value) ?? 0;
+    }
+
+    return 0;
   }
 }

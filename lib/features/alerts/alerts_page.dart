@@ -26,9 +26,29 @@ class AlertsPage extends StatelessWidget {
     return now.difference(receivedAt).inDays;
   }
 
-  List<ProductModel> _getLowStockProducts(List<ProductModel> products) {
+  Map<String, int> _getActualStockByProductId(List<BatchModel> batches) {
+    final Map<String, int> stockMap = {};
+
+    for (final batch in batches) {
+      final status = batch.status.toLowerCase().trim();
+
+      if (status != 'active') continue;
+      if (batch.remainingQty <= 0) continue;
+
+      stockMap[batch.productId] =
+          (stockMap[batch.productId] ?? 0) + batch.remainingQty;
+    }
+
+    return stockMap;
+  }
+
+  List<ProductModel> _getLowStockProducts(
+    List<ProductModel> products,
+    Map<String, int> actualStockByProductId,
+  ) {
     return products.where((product) {
-      return product.totalStock <= product.minimumStock;
+      final actualStock = actualStockByProductId[product.id] ?? 0;
+      return actualStock <= product.minimumStock;
     }).toList();
   }
 
@@ -44,20 +64,20 @@ class AlertsPage extends StatelessWidget {
     }).toList();
   }
 
-  String _getStockStatus(ProductModel product) {
-    if (product.totalStock <= 0) {
+  String _getStockStatus(ProductModel product, int actualStock) {
+    if (actualStock <= 0) {
       return 'Habis';
     }
 
-    if (product.totalStock <= product.minimumStock) {
+    if (actualStock <= product.minimumStock) {
       return 'Menipis';
     }
 
     return 'Aman';
   }
 
-  Color _getStockStatusColor(ProductModel product) {
-    final status = _getStockStatus(product);
+  Color _getStockStatusColor(ProductModel product, int actualStock) {
+    final status = _getStockStatus(product, actualStock);
 
     if (status == 'Habis') {
       return Colors.red.shade500;
@@ -101,9 +121,13 @@ class AlertsPage extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _buildSummaryRow(
-                  label: 'Total Peringatan', value: '$totalAlerts'),
+                label: 'Total Peringatan',
+                value: '$totalAlerts',
+              ),
               _buildSummaryRow(
-                  label: 'Produk Stok Menipis', value: '$lowStockCount'),
+                label: 'Produk Stok Menipis',
+                value: '$lowStockCount',
+              ),
               _buildSummaryRow(
                 label: 'Batch Terlalu Lama',
                 value: '$oldBatchCount',
@@ -300,7 +324,10 @@ class AlertsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildLowStockSection(List<ProductModel> lowStockProducts) {
+  Widget _buildLowStockSection(
+    List<ProductModel> lowStockProducts,
+    Map<String, int> actualStockByProductId,
+  ) {
     if (lowStockProducts.isEmpty) {
       return _buildEmptyCard(
         icon: Icons.check_circle_outline,
@@ -311,8 +338,9 @@ class AlertsPage extends StatelessWidget {
 
     return Column(
       children: lowStockProducts.map((product) {
-        final status = _getStockStatus(product);
-        final color = _getStockStatusColor(product);
+        final actualStock = actualStockByProductId[product.id] ?? 0;
+        final status = _getStockStatus(product, actualStock);
+        final color = _getStockStatusColor(product, actualStock);
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -345,18 +373,13 @@ class AlertsPage extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            product.name,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        product.name,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
                       ),
                     ),
                   ],
@@ -365,15 +388,14 @@ class AlertsPage extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    const SizedBox(width: 42), // Align content under the text
+                    const SizedBox(width: 42),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _buildInfoRow(
                             icon: Icons.inventory_2_outlined,
-                            text:
-                                'Stok saat ini: ${product.totalStock} ${product.unit}',
+                            text: 'Stok saat ini: $actualStock ${product.unit}',
                           ),
                           _buildInfoRow(
                             icon: Icons.low_priority_outlined,
@@ -548,8 +570,10 @@ class AlertsPage extends StatelessWidget {
           elevation: 0,
           centerTitle: true,
           leading: IconButton(
-            icon: const Icon(Icons.keyboard_double_arrow_left,
-                color: Colors.white),
+            icon: const Icon(
+              Icons.keyboard_double_arrow_left,
+              color: Colors.white,
+            ),
             onPressed: () {
               Navigator.pop(context);
             },
@@ -596,7 +620,6 @@ class AlertsPage extends StatelessWidget {
           }
 
           final products = productSnapshot.data ?? [];
-          final lowStockProducts = _getLowStockProducts(products);
 
           return StreamBuilder<List<BatchModel>>(
             stream: _batchRepository.getBatchesStream(),
@@ -614,10 +637,20 @@ class AlertsPage extends StatelessWidget {
               final batches = batchSnapshot.data ?? [];
               final oldBatches = _getOldBatches(batches);
 
+              final actualStockByProductId =
+                  _getActualStockByProductId(batches);
+
+              final lowStockProducts = _getLowStockProducts(
+                products,
+                actualStockByProductId,
+              );
+
               return SafeArea(
                 child: SingleChildScrollView(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 24,
+                  ),
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -632,7 +665,9 @@ class AlertsPage extends StatelessWidget {
                       ],
                     ),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 20),
+                      horizontal: 16,
+                      vertical: 20,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -646,7 +681,10 @@ class AlertsPage extends StatelessWidget {
                           subtitle:
                               'Produk yang stoknya berada pada atau di bawah batas minimum.',
                         ),
-                        _buildLowStockSection(lowStockProducts),
+                        _buildLowStockSection(
+                          lowStockProducts,
+                          actualStockByProductId,
+                        ),
                         const SizedBox(height: 12),
                         _buildSectionTitle(
                           title: 'Peringatan Batch Terlalu Lama',

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models/app_user_model.dart';
 import '../../data/models/batch_model.dart';
@@ -55,6 +56,8 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
   }
 
   void _showFloatingSnackBar(String message, Color color) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -92,26 +95,39 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
         _isLoading = false;
       });
 
-      _showFloatingSnackBar('Gagal validasi FIFO: $e', Colors.redAccent);
+      _showFloatingSnackBar(
+        'Gagal validasi FIFO: $e',
+        Colors.redAccent,
+      );
     }
   }
 
   Future<void> _saveStockOut() async {
     if (!_isFifoValid) {
       _showFloatingSnackBar(
-          'Batch ini tidak sesuai urutan FIFO.', Colors.redAccent);
+        'Batch ini tidak sesuai urutan FIFO.',
+        Colors.redAccent,
+      );
       return;
     }
 
     if (!_formKey.currentState!.validate()) return;
+
+    final qty = int.tryParse(_qtyController.text.trim());
+
+    if (qty == null || qty <= 0) {
+      _showFloatingSnackBar(
+        'Jumlah stok keluar harus berupa angka lebih dari 0.',
+        Colors.redAccent,
+      );
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
     });
 
     try {
-      final qty = int.parse(_qtyController.text.trim());
-
       await _batchRepository.decreaseBatchStock(
         batchId: widget.scannedBatch.id,
         qty: qty,
@@ -134,17 +150,33 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
         notes: _notesController.text.trim(),
       );
 
+      await _productRepository.syncTotalStockFromBatches(
+        productId: widget.scannedBatch.productId,
+      );
+
       if (!mounted) return;
 
       _showFloatingSnackBar(
-          'Stok keluar berhasil disimpan.', const Color(0xFF038E1B));
+        'Stok keluar berhasil disimpan.',
+        const Color(0xFF038E1B),
+      );
 
       Navigator.pop(context);
     } catch (e) {
+      try {
+        await _productRepository.syncTotalStockFromBatches(
+          productId: widget.scannedBatch.productId,
+        );
+      } catch (_) {
+        // Sinkronisasi cadangan gagal, pesan utama tetap ditampilkan.
+      }
+
       if (!mounted) return;
 
       _showFloatingSnackBar(
-          'Gagal menyimpan stok keluar: $e', Colors.redAccent);
+        'Gagal menyimpan stok keluar: $e',
+        Colors.redAccent,
+      );
 
       setState(() {
         _isSubmitting = false;
@@ -270,7 +302,10 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
     );
   }
 
-  Widget _buildInfoRow({required String label, required String value}) {
+  Widget _buildInfoRow({
+    required String label,
+    required String value,
+  }) {
     final displayValue = value.trim().isEmpty ? '-' : value.trim();
 
     return Padding(
@@ -357,7 +392,9 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
           _buildInfoRow(label: 'Kode Batch', value: batch.batchCode),
           _buildInfoRow(label: 'Lokasi', value: location),
           _buildInfoRow(
-              label: 'Tanggal Masuk', value: _formatDate(receivedDate)),
+            label: 'Tanggal Masuk',
+            value: _formatDate(receivedDate),
+          ),
           _buildInfoRow(
             label: 'Sisa Stok',
             value: '${batch.remainingQty} ${batch.unit}',
@@ -404,24 +441,32 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
               controller: _qtyController,
               enabled: _isFifoValid,
               keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ],
               textInputAction: TextInputAction.next,
               style: const TextStyle(fontWeight: FontWeight.w600),
               decoration: InputDecoration(
                 labelText: 'Jumlah Stok Keluar',
                 hintText: 'Contoh: 1',
                 labelStyle: TextStyle(
-                    color:
-                        _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
-                prefixIcon: Icon(Icons.numbers,
-                    color:
-                        _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
+                  color: _isFifoValid ? const Color(0xFF038E1B) : Colors.grey,
+                ),
+                prefixIcon: Icon(
+                  Icons.numbers,
+                  color: _isFifoValid ? const Color(0xFF038E1B) : Colors.grey,
+                ),
                 suffixText: scannedBatch.unit,
                 suffixStyle: const TextStyle(
-                    fontWeight: FontWeight.bold, color: Colors.black54),
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black54,
+                ),
                 filled: true,
                 fillColor: _isFifoValid ? Colors.white : Colors.grey.shade100,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -462,13 +507,17 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
                 if (value == null || value.trim().isEmpty) {
                   return 'Jumlah tidak boleh kosong';
                 }
+
                 final qty = int.tryParse(value.trim());
+
                 if (qty == null || qty <= 0) {
                   return 'Harus berupa angka > 0';
                 }
+
                 if (qty > scannedBatch.remainingQty) {
                   return 'Melebihi sisa stok (Maks: ${scannedBatch.remainingQty})';
                 }
+
                 return null;
               },
             ),
@@ -482,20 +531,22 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
                 labelText: 'Catatan (Opsional)',
                 hintText: 'Tambahkan keterangan jika perlu...',
                 labelStyle: TextStyle(
-                    color:
-                        _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
-                // Menggunakan Padding bottom besar untuk mendorong ikon naik sejajar teks
+                  color: _isFifoValid ? const Color(0xFF038E1B) : Colors.grey,
+                ),
                 prefixIcon: Padding(
                   padding: const EdgeInsets.only(bottom: 44.0),
-                  child: Icon(Icons.notes_outlined,
-                      color:
-                          _isFifoValid ? const Color(0xFF038E1B) : Colors.grey),
+                  child: Icon(
+                    Icons.notes_outlined,
+                    color: _isFifoValid ? const Color(0xFF038E1B) : Colors.grey,
+                  ),
                 ),
                 alignLabelWithHint: true,
                 filled: true,
                 fillColor: _isFifoValid ? Colors.white : Colors.grey.shade100,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -540,7 +591,7 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
                             color: Colors.black.withOpacity(0.2),
                             offset: const Offset(0, 4),
                             blurRadius: 10,
-                          )
+                          ),
                         ]
                       : [],
                 ),
@@ -557,8 +608,11 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
                                 AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
-                      : const Icon(Icons.check_circle_outline,
-                          color: Colors.white, size: 22),
+                      : const Icon(
+                          Icons.check_circle_outline,
+                          color: Colors.white,
+                          size: 22,
+                        ),
                   label: Text(
                     _isSubmitting ? 'Menyimpan...' : 'Simpan Stok Keluar',
                     style: const TextStyle(
@@ -570,7 +624,6 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
                     shadowColor: Colors.transparent,
-                    // Menghilangkan warna background bawaan saat tombol dinonaktifkan
                     disabledBackgroundColor: Colors.transparent,
                     disabledForegroundColor: Colors.white70,
                     shape: RoundedRectangleBorder(
@@ -617,7 +670,10 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
             const SizedBox(height: 8),
             const Text(
               'Mohon tunggu sebentar',
-              style: TextStyle(color: Colors.black54, fontSize: 13),
+              style: TextStyle(
+                color: Colors.black54,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
@@ -637,7 +693,6 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
       backgroundColor: const Color(0xFFF8F9FA),
       body: Column(
         children: [
-          // --- CUSTOM HEADER GRADASI ---
           Container(
             padding: EdgeInsets.only(
               top: MediaQuery.of(context).padding.top + 16,
@@ -691,8 +746,6 @@ class _StockOutConfirmPageState extends State<StockOutConfirmPage> {
               ],
             ),
           ),
-
-          // --- KONTEN HALAMAN ---
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),

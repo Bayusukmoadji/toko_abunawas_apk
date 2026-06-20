@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../data/models/app_user_model.dart';
@@ -35,12 +36,9 @@ class _StockInPageState extends State<StockInPage> {
   bool _isLoadingProducts = true;
   bool _isSubmitting = false;
 
-  // --- STATE UNTUK VALIDASI KUSTOM (ERROR DI SAMPING) ---
   bool _hasErrorProduct = false;
   bool _hasErrorQty = false;
   bool _hasErrorLocation = false;
-
-  // --- KUNCIAN PARAMETER VISUAL ---
 
   final BoxShadow figmaStrictShadow = BoxShadow(
     color: Colors.black.withOpacity(0.25),
@@ -85,14 +83,24 @@ class _StockInPageState extends State<StockInPage> {
   Future<void> _loadProducts() async {
     try {
       final products = await _productRepository.getActiveProducts();
+
       if (!mounted) return;
+
       setState(() {
         _products = products;
         _isLoadingProducts = false;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoadingProducts = false);
+
+      setState(() {
+        _isLoadingProducts = false;
+      });
+
+      _showFloatingSnackBar(
+        'Gagal memuat produk: $e',
+        Colors.redAccent,
+      );
     }
   }
 
@@ -100,7 +108,41 @@ class _StockInPageState extends State<StockInPage> {
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
-  // --- CUSTOM DATE PICKER THEME (GLASSY & GRADIENT) ---
+  void _showFloatingSnackBar(String message, Color color) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              color == Colors.redAccent
+                  ? Icons.error_outline
+                  : Icons.check_circle_outline,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -125,6 +167,7 @@ class _StockInPageState extends State<StockInPage> {
         );
       },
     );
+
     if (picked != null && picked != _selectedDate) {
       setState(() {
         _selectedDate = picked;
@@ -132,94 +175,107 @@ class _StockInPageState extends State<StockInPage> {
     }
   }
 
-  // --- LOGIKA SIMPAN & ALERT ---
   Future<void> _saveStockIn() async {
-    // 1. Validasi Manual
+    final qtyText = _qtyController.text.trim();
+    final locationText = _locationController.text.trim();
+    final notesText = _notesController.text.trim();
+    final qty = int.tryParse(qtyText);
+
     setState(() {
       _hasErrorProduct = _selectedProduct == null;
-      _hasErrorQty = _qtyController.text.trim().isEmpty;
-      _hasErrorLocation = _locationController.text.trim().isEmpty;
+      _hasErrorQty = qtyText.isEmpty || qty == null || qty <= 0;
+      _hasErrorLocation = locationText.isEmpty;
     });
 
-    // Cegah proses jika ada error
-    if (_hasErrorProduct || _hasErrorQty || _hasErrorLocation) return;
+    if (_hasErrorProduct || _hasErrorQty || _hasErrorLocation) {
+      if (_hasErrorQty && qtyText.isNotEmpty) {
+        _showFloatingSnackBar(
+          'Jumlah stok harus berupa angka lebih dari 0.',
+          Colors.redAccent,
+        );
+      }
+      return;
+    }
 
-    setState(() => _isSubmitting = true);
+    final selectedProduct = _selectedProduct!;
+
+    setState(() {
+      _isSubmitting = true;
+    });
 
     try {
-      final qty = int.parse(_qtyController.text.trim());
       final batchResult = await _batchRepository.createBatch(
-        productId: _selectedProduct!.id,
-        productName: _selectedProduct!.name,
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
         receivedAt: _selectedDate,
-        qty: qty,
-        unit: _selectedProduct!.unit,
-        storageLocation: _locationController.text.trim(),
+        qty: qty!,
+        unit: selectedProduct.unit,
+        storageLocation: locationText,
         createdBy: widget.user.uid,
         createdByName: widget.user.name,
-        notes: _notesController.text.trim(),
+        notes: notesText,
       );
 
       await _productRepository.increaseTotalStock(
-          productId: _selectedProduct!.id, qty: qty);
+        productId: selectedProduct.id,
+        qty: qty,
+      );
+
       await _transactionRepository.createStockInTransaction(
-        productId: _selectedProduct!.id,
-        productName: _selectedProduct!.name,
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
         batchId: batchResult['batchId']!,
         batchCode: batchResult['batchCode']!,
         qty: qty,
-        unit: _selectedProduct!.unit,
+        unit: selectedProduct.unit,
         performedBy: widget.user.uid,
         performedByName: widget.user.name,
-        notes: _notesController.text.trim(),
+        notes: notesText,
+      );
+
+      await _productRepository.syncTotalStockFromBatches(
+        productId: selectedProduct.id,
       );
 
       if (!mounted) return;
 
-      // Bersihkan Form
       _qtyController.clear();
       _locationController.clear();
       _notesController.clear();
+
       setState(() {
         _selectedProduct = null;
         _selectedDate = DateTime.now();
+        _hasErrorProduct = false;
+        _hasErrorQty = false;
+        _hasErrorLocation = false;
       });
 
-      // 2. Tampilkan Alert Sukses (Linter Fix: menggunakan const Row)
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle_outline, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Stok berhasil ditambahkan!',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: const Color(0xFF038E1B),
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          margin: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
-          duration: const Duration(seconds: 3),
-        ),
+      _showFloatingSnackBar(
+        'Stok berhasil ditambahkan!',
+        const Color(0xFF038E1B),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      _showFloatingSnackBar(
+        'Gagal menambahkan stok: $e',
+        Colors.redAccent,
       );
     } finally {
       if (mounted) {
-        setState(() => _isSubmitting = false);
+        setState(() {
+          _isSubmitting = false;
+        });
       }
     }
   }
 
-  Widget _buildSvgWrapper(
-      {required String svgPath, required Widget child, double height = 48}) {
+  Widget _buildSvgWrapper({
+    required String svgPath,
+    required Widget child,
+    double height = 48,
+  }) {
     return SizedBox(
       height: height,
       width: double.infinity,
@@ -241,9 +297,12 @@ class _StockInPageState extends State<StockInPage> {
     );
   }
 
-  // --- KUSTOMISASI DEKORASI DENGAN ALERT DI SAMPING ---
-  InputDecoration _customFieldDecoration(String hint,
-      {Widget? suffixIcon, String? suffixText, bool hasError = false}) {
+  InputDecoration _customFieldDecoration(
+    String hint, {
+    Widget? suffixIcon,
+    String? suffixText,
+    bool hasError = false,
+  }) {
     Widget? combinedSuffix;
 
     if (hasError || suffixIcon != null || suffixText != null) {
@@ -253,19 +312,26 @@ class _StockInPageState extends State<StockInPage> {
           if (hasError)
             const Padding(
               padding: EdgeInsets.only(right: 12.0),
-              child: Text('Wajib isi *',
-                  style: TextStyle(
-                      color: Colors.red,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      fontStyle: FontStyle.italic)),
+              child: Text(
+                'Wajib isi *',
+                style: TextStyle(
+                  color: Colors.red,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
             ),
           if (suffixText != null)
             Padding(
               padding: EdgeInsets.only(right: suffixIcon != null ? 8.0 : 0),
-              child: Text(suffixText,
-                  style: fieldTextStyle.copyWith(
-                      fontSize: 13, color: const Color(0xFF015816))),
+              child: Text(
+                suffixText,
+                style: fieldTextStyle.copyWith(
+                  fontSize: 13,
+                  color: const Color(0xFF015816),
+                ),
+              ),
             ),
           if (suffixIcon != null) suffixIcon,
         ],
@@ -275,14 +341,17 @@ class _StockInPageState extends State<StockInPage> {
     return InputDecoration(
       hintText: hint,
       hintStyle: fieldTextStyle.copyWith(
-          color: hasError
-              ? Colors.red.withOpacity(0.7)
-              : const Color(0xFF015816).withOpacity(0.5)),
+        color: hasError
+            ? Colors.red.withOpacity(0.7)
+            : const Color(0xFF015816).withOpacity(0.5),
+      ),
       contentPadding: EdgeInsets.zero,
       border: InputBorder.none,
       suffixIcon: combinedSuffix != null
           ? Padding(
-              padding: const EdgeInsets.only(right: 0), child: combinedSuffix)
+              padding: const EdgeInsets.only(right: 0),
+              child: combinedSuffix,
+            )
           : null,
       suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
     );
@@ -291,7 +360,13 @@ class _StockInPageState extends State<StockInPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoadingProducts) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFF038E1B),
+          ),
+        ),
+      );
     }
 
     return Scaffold(
@@ -299,7 +374,6 @@ class _StockInPageState extends State<StockInPage> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // --- HEADER ---
             Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.bottomCenter,
@@ -311,7 +385,8 @@ class _StockInPageState extends State<StockInPage> {
                   decoration: BoxDecoration(
                     gradient: primaryGradient,
                     borderRadius: const BorderRadius.vertical(
-                        bottom: Radius.circular(32)),
+                      bottom: Radius.circular(32),
+                    ),
                     boxShadow: [figmaStrictShadow],
                   ),
                   child: SafeArea(
@@ -320,8 +395,10 @@ class _StockInPageState extends State<StockInPage> {
                       child: Row(
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.keyboard_double_arrow_left,
-                                color: Colors.white),
+                            icon: const Icon(
+                              Icons.keyboard_double_arrow_left,
+                              color: Colors.white,
+                            ),
                             onPressed: () => Navigator.pop(context),
                           ),
                           const Expanded(
@@ -329,9 +406,10 @@ class _StockInPageState extends State<StockInPage> {
                               'STOK MASUK',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold),
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 48),
@@ -352,10 +430,7 @@ class _StockInPageState extends State<StockInPage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 10),
-
-            // --- FORM ---
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Container(
@@ -370,8 +445,10 @@ class _StockInPageState extends State<StockInPage> {
                   children: [
                     const Text(
                       'Form Input Stok Masuk',
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -383,8 +460,6 @@ class _StockInPageState extends State<StockInPage> {
                       ),
                     ),
                     const SizedBox(height: 20),
-
-                    // PILIH PRODUK
                     _buildSvgWrapper(
                       svgPath: 'assets/stockin/recm.svg',
                       child: DropdownButtonHideUnderline(
@@ -392,43 +467,44 @@ class _StockInPageState extends State<StockInPage> {
                           isExpanded: true,
                           value: _selectedProduct,
                           icon: const SizedBox.shrink(),
-                          hint: _customFieldDecoration(
-                                    'Pilih Produk',
-                                    suffixIcon: const Icon(
-                                        Icons.arrow_drop_down,
-                                        color: Color(0xFF015816)),
-                                    hasError: _hasErrorProduct,
-                                  ).hintText !=
-                                  null
-                              ? TextField(
-                                  enabled: false,
-                                  decoration: _customFieldDecoration(
-                                    'Pilih Produk',
-                                    suffixIcon: const Icon(
-                                        Icons.arrow_drop_down,
-                                        color: Color(0xFF015816)),
-                                    hasError: _hasErrorProduct,
-                                  ),
-                                )
-                              : const SizedBox(),
+                          hint: TextField(
+                            enabled: false,
+                            decoration: _customFieldDecoration(
+                              'Pilih Produk',
+                              suffixIcon: const Icon(
+                                Icons.arrow_drop_down,
+                                color: Color(0xFF015816),
+                              ),
+                              hasError: _hasErrorProduct,
+                            ),
+                          ),
                           selectedItemBuilder: (BuildContext context) {
                             return _products.map<Widget>((ProductModel item) {
                               return Row(
                                 children: [
                                   Expanded(
-                                      child: Text(item.name,
-                                          style: fieldTextStyle)),
-                                  const Icon(Icons.arrow_drop_down,
-                                      color: Color(0xFF015816)),
+                                    child: Text(
+                                      item.name,
+                                      style: fieldTextStyle,
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.arrow_drop_down,
+                                    color: Color(0xFF015816),
+                                  ),
                                 ],
                               );
                             }).toList();
                           },
-                          items: _products
-                              .map((p) => DropdownMenuItem(
-                                  value: p,
-                                  child: Text(p.name, style: fieldTextStyle)))
-                              .toList(),
+                          items: _products.map((p) {
+                            return DropdownMenuItem(
+                              value: p,
+                              child: Text(
+                                p.name,
+                                style: fieldTextStyle,
+                              ),
+                            );
+                          }).toList(),
                           onChanged: (v) {
                             setState(() {
                               _selectedProduct = v;
@@ -439,13 +515,14 @@ class _StockInPageState extends State<StockInPage> {
                       ),
                     ),
                     const SizedBox(height: 14),
-
-                    // JUMLAH STOK
                     _buildSvgWrapper(
                       svgPath: 'assets/stockin/recm.svg',
                       child: TextField(
                         controller: _qtyController,
                         keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
                         textAlign: TextAlign.left,
                         style: fieldTextStyle,
                         decoration: _customFieldDecoration(
@@ -462,8 +539,6 @@ class _StockInPageState extends State<StockInPage> {
                       ),
                     ),
                     const SizedBox(height: 14),
-
-                    // LOKASI
                     _buildSvgWrapper(
                       svgPath: 'assets/stockin/recm.svg',
                       child: TextField(
@@ -482,8 +557,6 @@ class _StockInPageState extends State<StockInPage> {
                       ),
                     ),
                     const SizedBox(height: 14),
-
-                    // TANGGAL
                     InkWell(
                       onTap: () => _selectDate(context),
                       child: _buildSvgWrapper(
@@ -497,15 +570,16 @@ class _StockInPageState extends State<StockInPage> {
                                 style: fieldTextStyle,
                               ),
                             ),
-                            const Icon(Icons.calendar_month_outlined,
-                                color: Color(0xFF015816), size: 20),
+                            const Icon(
+                              Icons.calendar_month_outlined,
+                              color: Color(0xFF015816),
+                              size: 20,
+                            ),
                           ],
                         ),
                       ),
                     ),
                     const SizedBox(height: 14),
-
-                    // CATATAN
                     _buildSvgWrapper(
                       svgPath: 'assets/stockin/recb.svg',
                       height: 100,
@@ -518,8 +592,6 @@ class _StockInPageState extends State<StockInPage> {
                       ),
                     ),
                     const SizedBox(height: 28),
-
-                    // TOMBOL SIMPAN
                     Center(
                       child: GestureDetector(
                         onTap: _isSubmitting ? null : _saveStockIn,
@@ -536,22 +608,29 @@ class _StockInPageState extends State<StockInPage> {
                             children: [
                               if (_isSubmitting)
                                 const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2))
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
                               else ...[
-                                const Icon(Icons.save_outlined,
-                                    color: Colors.white, size: 16),
+                                const Icon(
+                                  Icons.save_outlined,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
                                 const SizedBox(width: 6),
                                 const Text(
                                   'Simpan',
                                   style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13),
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
                                 ),
-                              ]
+                              ],
                             ],
                           ),
                         ),

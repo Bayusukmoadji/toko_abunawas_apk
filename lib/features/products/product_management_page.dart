@@ -19,14 +19,20 @@ class ProductManagementPage extends StatefulWidget {
 
 class _ProductManagementPageState extends State<ProductManagementPage> {
   final ProductRepository _productRepository = ProductRepository();
-  final TextEditingController _searchController = TextEditingController();
 
-  _ProductFilter _selectedFilter = _ProductFilter.all;
-  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  final ValueNotifier<String> _searchQueryNotifier = ValueNotifier<String>('');
+  final ValueNotifier<_ProductFilter> _selectedFilterNotifier =
+      ValueNotifier<_ProductFilter>(_ProductFilter.all);
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
+    _searchQueryNotifier.dispose();
+    _selectedFilterNotifier.dispose();
     super.dispose();
   }
 
@@ -61,15 +67,21 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     }
   }
 
-  List<ProductModel> _filterProducts(List<ProductModel> products) {
-    final query = _searchQuery.trim().toLowerCase();
+  List<ProductModel> _filterProducts({
+    required List<ProductModel> products,
+    required String searchQuery,
+    required _ProductFilter selectedFilter,
+  }) {
+    final query = searchQuery.trim().toLowerCase();
 
     return products.where((product) {
-      final matchStatus = switch (_selectedFilter) {
-        _ProductFilter.all => true,
-        _ProductFilter.active => product.isActive,
-        _ProductFilter.inactive => !product.isActive,
-      };
+      bool matchStatus = true;
+
+      if (selectedFilter == _ProductFilter.active) {
+        matchStatus = product.isActive;
+      } else if (selectedFilter == _ProductFilter.inactive) {
+        matchStatus = !product.isActive;
+      }
 
       final matchSearch = query.isEmpty ||
           product.name.toLowerCase().contains(query) ||
@@ -648,85 +660,120 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
   Widget _buildSearchAndFilter() {
     return Column(
       children: [
-        TextField(
-          controller: _searchController,
-          decoration: InputDecoration(
-            hintText: 'Cari nama, kode, kategori, atau satuan produk...',
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: _searchQuery.isEmpty
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () {
-                      setState(() {
-                        _searchController.clear();
-                        _searchQuery = '';
-                      });
-                    },
-                  ),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 12,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFF0F6022)),
-            ),
-          ),
-          onChanged: (value) {
-            setState(() {
-              _searchQuery = value;
-            });
+        ValueListenableBuilder<String>(
+          valueListenable: _searchQueryNotifier,
+          builder: (context, searchQuery, _) {
+            return TextField(
+              key: const ValueKey('product_search_field'),
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Cari nama, kode, kategori, atau satuan produk...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: searchQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          _searchController.clear();
+                          _searchQueryNotifier.value = '';
+                          _searchFocusNode.requestFocus();
+                        },
+                      ),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Color(0xFF0F6022)),
+                ),
+              ),
+              onChanged: (value) {
+                _searchQueryNotifier.value = value;
+              },
+            );
           },
         ),
         const SizedBox(height: 10),
-        Row(
-          children: _ProductFilter.values.map((filter) {
-            final selected = _selectedFilter == filter;
+        ValueListenableBuilder<_ProductFilter>(
+          valueListenable: _selectedFilterNotifier,
+          builder: (context, selectedFilter, _) {
+            return Row(
+              children: _ProductFilter.values.map((filter) {
+                final selected = selectedFilter == filter;
 
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: ChoiceChip(
-                  label: Center(
-                    child: Text(
-                      _filterLabel(filter),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: selected ? Colors.white : Colors.black87,
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Center(
+                        child: Text(
+                          _filterLabel(filter),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: selected ? Colors.white : Colors.black87,
+                          ),
+                        ),
                       ),
+                      selected: selected,
+                      selectedColor: const Color(0xFF0F6022),
+                      backgroundColor: Colors.white,
+                      side: BorderSide(
+                        color: selected
+                            ? const Color(0xFF0F6022)
+                            : Colors.grey.shade300,
+                      ),
+                      onSelected: (_) {
+                        _selectedFilterNotifier.value = filter;
+                        _searchFocusNode.requestFocus();
+                      },
                     ),
                   ),
-                  selected: selected,
-                  selectedColor: const Color(0xFF0F6022),
-                  backgroundColor: Colors.white,
-                  side: BorderSide(
-                    color: selected
-                        ? const Color(0xFF0F6022)
-                        : Colors.grey.shade300,
-                  ),
-                  onSelected: (_) {
-                    setState(() {
-                      _selectedFilter = filter;
-                    });
-                  },
-                ),
-              ),
+                );
+              }).toList(),
             );
-          }).toList(),
+          },
         ),
       ],
+    );
+  }
+
+  Widget _buildProductListBySearchAndFilter(List<ProductModel> products) {
+    return ValueListenableBuilder<String>(
+      valueListenable: _searchQueryNotifier,
+      builder: (context, searchQuery, _) {
+        return ValueListenableBuilder<_ProductFilter>(
+          valueListenable: _selectedFilterNotifier,
+          builder: (context, selectedFilter, _) {
+            final filteredProducts = _filterProducts(
+              products: products,
+              searchQuery: searchQuery,
+              selectedFilter: selectedFilter,
+            );
+
+            if (filteredProducts.isEmpty) {
+              return _buildNotFoundState();
+            }
+
+            return Column(
+              children: filteredProducts.map(_buildProductCard).toList(),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1125,11 +1172,10 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             return _buildEmptyState();
           }
 
-          final filteredProducts = _filterProducts(products);
-
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 620),
@@ -1171,10 +1217,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        if (filteredProducts.isEmpty)
-                          _buildNotFoundState()
-                        else
-                          ...filteredProducts.map(_buildProductCard),
+                        _buildProductListBySearchAndFilter(products),
                       ],
                     ),
                   ),

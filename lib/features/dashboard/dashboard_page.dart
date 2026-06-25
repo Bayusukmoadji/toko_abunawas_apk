@@ -14,6 +14,7 @@ import '../alerts/alerts_page.dart';
 import '../analysis/stock_trend_page.dart';
 import '../auth/login_page.dart';
 import '../history/transaction_history_page.dart';
+import '../products/product_management_page.dart';
 import '../reports/stock_report_page.dart';
 import '../stock_in/batch_list_page.dart';
 import '../stock_in/stock_in_page.dart';
@@ -1135,7 +1136,16 @@ class DashboardPage extends StatelessWidget {
                           UserManagementPage(currentUser: user),
                         ),
                       ),
-                      const Expanded(child: SizedBox()),
+                      _buildSvgMenuItem(
+                        title: 'Kelola\nProduk',
+                        svgPath: 'assets/images/batch.svg',
+                        fallbackIcon: Icons.inventory_2_outlined,
+                        iconSize: 23.0,
+                        onTap: () => _openPage(
+                          context,
+                          const ProductManagementPage(),
+                        ),
+                      ),
                     ],
                   ),
                 ],

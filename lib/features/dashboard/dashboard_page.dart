@@ -416,6 +416,46 @@ class DashboardPage extends StatelessWidget {
     );
   }
 
+  Widget _buildMaterialIconWithGlassBg(
+    IconData icon,
+    double iconSize,
+  ) {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.65),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [_iconGlassShadow],
+            ),
+          ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SvgPicture.asset(
+              'assets/images/glass_bg.svg',
+              width: 48,
+              height: 48,
+              fit: BoxFit.cover,
+            ),
+          ),
+          Center(
+            child: Icon(
+              icon,
+              color: AppTheme.primaryGreen,
+              size: iconSize,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNotificationBell(BuildContext context) {
     return StreamBuilder<List<ProductModel>>(
       stream: _productRepository.getActiveProductsStream(),
@@ -436,84 +476,71 @@ class DashboardPage extends StatelessWidget {
             final alertCount = alerts.length;
             final badgeText = alertCount > 99 ? '99+' : '$alertCount';
 
-            return Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  if (hasError) {
-                    _showSimpleSnackBar(
-                      context: context,
-                      message: 'Gagal memuat data peringatan.',
-                      color: Colors.red,
-                    );
-                    return;
-                  }
-
-                  _showAlertsBottomSheet(
-                    context: context,
-                    alerts: alerts,
-                  );
-                },
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.35),
-                      width: 1,
+            return SizedBox(
+              width: 46,
+              height: 46,
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 46,
+                      minHeight: 46,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
-                        offset: const Offset(1, 2),
-                        blurRadius: 4,
-                      ),
-                    ],
+                    splashRadius: 24,
+                    onPressed: () {
+                      if (hasError) {
+                        _showSimpleSnackBar(
+                          context: context,
+                          message: 'Gagal memuat data peringatan.',
+                          color: Colors.red,
+                        );
+                        return;
+                      }
+
+                      _showAlertsBottomSheet(
+                        context: context,
+                        alerts: alerts,
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.notifications_none_rounded,
+                      color: Colors.white,
+                      size: 31,
+                    ),
                   ),
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    alignment: Alignment.center,
-                    children: [
-                      const Icon(
-                        Icons.notifications_none_rounded,
-                        color: Colors.white,
-                        size: 27,
-                      ),
-                      if (alertCount > 0)
-                        Positioned(
-                          top: 4,
-                          right: 3,
-                          child: Container(
-                            constraints: const BoxConstraints(
-                              minWidth: 18,
-                              minHeight: 18,
-                            ),
-                            padding: const EdgeInsets.symmetric(horizontal: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              borderRadius: BorderRadius.circular(99),
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 1.5,
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              badgeText,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                  if (alertCount > 0)
+                    Positioned(
+                      top: 2,
+                      right: 2,
+                      child: Container(
+                        constraints: const BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(99),
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 1.5,
                           ),
                         ),
-                    ],
-                  ),
-                ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          badgeText,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             );
           },
@@ -750,6 +777,42 @@ class DashboardPage extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildIconWithGlassBg(svgPath, iconSize, fallbackIcon),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                  height: 1.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMaterialMenuItem({
+    required String title,
+    required IconData icon,
+    required double iconSize,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildMaterialIconWithGlassBg(icon, iconSize),
               const SizedBox(height: 6),
               Text(
                 title,
@@ -1136,11 +1199,10 @@ class DashboardPage extends StatelessWidget {
                           UserManagementPage(currentUser: user),
                         ),
                       ),
-                      _buildSvgMenuItem(
+                      _buildMaterialMenuItem(
                         title: 'Kelola\nProduk',
-                        svgPath: 'assets/images/batch.svg',
-                        fallbackIcon: Icons.inventory_2_outlined,
-                        iconSize: 23.0,
+                        icon: Icons.category_outlined,
+                        iconSize: 25.0,
                         onTap: () => _openPage(
                           context,
                           const ProductManagementPage(),

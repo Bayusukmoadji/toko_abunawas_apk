@@ -22,6 +22,12 @@ class _StockTrendPageState extends State<StockTrendPage> {
   String? _selectedProductId;
   bool _isLoadingProducts = true;
 
+  final BoxShadow _softShadow = BoxShadow(
+    color: Colors.black.withOpacity(0.07),
+    blurRadius: 12,
+    offset: const Offset(0, 4),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -174,25 +180,11 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
     final averageQty = totalQty / data.length;
 
-    final predictedDaily = <_PredictedStockOut>[];
     double estimatedNext7Days = 0;
 
-    final lastDate = data.last.date;
-
-    for (int i = 0; i < 7; i++) {
-      final x = n + i;
-      final rawPrediction = intercept + (slope * x);
-      final prediction = rawPrediction < 0 ? 0 : rawPrediction;
-      final roundedPrediction = prediction.round();
-
-      predictedDaily.add(
-        _PredictedStockOut(
-          date: lastDate.add(Duration(days: i + 1)),
-          qty: roundedPrediction,
-        ),
-      );
-
-      estimatedNext7Days += prediction;
+    for (int i = n; i < n + 7; i++) {
+      final prediction = intercept + (slope * i);
+      estimatedNext7Days += prediction < 0 ? 0 : prediction;
     }
 
     String trendStatus;
@@ -212,7 +204,6 @@ class _StockTrendPageState extends State<StockTrendPage> {
       totalQty: totalQty,
       averageQty: averageQty,
       estimatedNext7Days: estimatedNext7Days,
-      predictedDaily: predictedDaily,
     );
   }
 
@@ -265,16 +256,69 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return Icons.check_circle_outline;
   }
 
+  Widget _buildCleanCard({
+    required Widget child,
+    EdgeInsetsGeometry? padding,
+    EdgeInsetsGeometry? margin,
+    Color color = Colors.white,
+    Color borderColor = const Color(0xFFE5E5E5),
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: margin,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: borderColor,
+          width: 1,
+        ),
+        boxShadow: [_softShadow],
+      ),
+      child: Padding(
+        padding: padding ?? const EdgeInsets.all(16),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle({
+    required String title,
+    required String subtitle,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: Colors.black54,
+              fontSize: 11,
+              height: 1.25,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildProductFilter() {
     if (_products.isEmpty) {
-      return Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
+      return _buildCleanCard(
+        color: Colors.grey.shade50,
+        borderColor: Colors.grey.shade300,
         child: const Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -294,40 +338,37 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Pilih Produk',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
+        _buildSectionTitle(
+          title: 'Pilih Produk',
+          subtitle:
+              'Pilih produk atau merk beras yang ingin dianalisis berdasarkan transaksi stok keluar.',
         ),
-        const SizedBox(height: 12),
-        Container(
+        _buildCleanCard(
           padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(
-            image: DecorationImage(
-              image: AssetImage('assets/batch/cardsum.png'),
-              fit: BoxFit.fill,
-            ),
-          ),
           child: DropdownButtonFormField<String>(
             value: _selectedProductId,
             isExpanded: true,
             icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Produk / Merk Beras',
-              labelStyle: TextStyle(
+              labelStyle: const TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.black87,
                 fontSize: 14,
               ),
-              contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: 0),
-              enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.black26),
+              filled: true,
+              fillColor: const Color(0xFFF8F8F8),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 12,
               ),
-              focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: Colors.green),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFDADADA)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFF038E1B)),
               ),
             ),
             items: _products.map((product) {
@@ -379,23 +420,12 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Dashboard Analisis',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
+        _buildSectionTitle(
+          title: 'Dashboard Analisis',
+          subtitle:
+              'Ringkasan hasil perhitungan linear regression dari data stok keluar harian.',
         ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          decoration: const BoxDecoration(
-            image: DecorationImage(
-              image: AssetImage('assets/batch/cardsum.png'),
-              fit: BoxFit.fill,
-            ),
-          ),
+        _buildCleanCard(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -421,11 +451,13 @@ class _StockTrendPageState extends State<StockTrendPage> {
                             color: Colors.black87,
                           ),
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           result.trendStatus,
                           style: const TextStyle(
-                            fontSize: 10,
+                            fontSize: 10.5,
                             color: Colors.black54,
+                            height: 1.25,
                           ),
                         ),
                       ],
@@ -462,7 +494,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
               ),
               _buildResultRow(
                 icon: Icons.auto_graph_outlined,
-                label: 'Prediksi 7 Hari',
+                label: 'Estimasi Kebutuhan 7 Hari',
                 value: '$estimatedNeed $unit',
               ),
               _buildResultRow(
@@ -484,7 +516,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Nilai slope menunjukan arah perubahan stok keluar. Slope positif berarti pengeluaran cenderung meningkat, slope negatif berarti menurun, sedangkan nilai mendekati 0 menunjukan tren relatif stabil. Prediksi kebutuhan stok bersifat pendukung dan bukan keputusan otomatis.',
+                'Nilai slope menunjukkan arah perubahan stok keluar. Slope positif berarti pengeluaran cenderung meningkat, slope negatif berarti menurun, sedangkan nilai mendekati 0 menunjukkan tren relatif stabil. Hasil prediksi bersifat pendukung dan bukan keputusan otomatis.',
                 style: TextStyle(
                   color: Colors.black54,
                   fontSize: 10,
@@ -522,32 +554,12 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Prediksi Kebutuhan Stok',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
+        _buildSectionTitle(
+          title: 'Prediksi Kebutuhan Stok',
+          subtitle:
+              'Prediksi dihitung dari pola stok keluar harian selama 7 hari berikutnya secara total, bukan per hari.',
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'Prediksi dihitung dari pola stok keluar harian menggunakan linear regression.',
-          style: TextStyle(
-            color: Colors.black54,
-            fontSize: 11,
-            height: 1.2,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          decoration: const BoxDecoration(
-            image: DecorationImage(
-              image: AssetImage('assets/batch/cardsum.png'),
-              fit: BoxFit.fill,
-            ),
-          ),
+        _buildCleanCard(
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
@@ -613,68 +625,6 @@ class _StockTrendPageState extends State<StockTrendPage> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        _buildPredictionDailyList(result.predictedDaily),
-      ],
-    );
-  }
-
-  Widget _buildPredictionDailyList(List<_PredictedStockOut> predictedDaily) {
-    if (predictedDaily.isEmpty) return const SizedBox.shrink();
-
-    final unit = _getSelectedProductUnit();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Prediksi Harian 7 Hari',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 10),
-        ...predictedDaily.map((item) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.orange.shade100),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.insights_outlined,
-                  color: Colors.orange.shade700,
-                  size: 18,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _formatDate(item.date),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${item.qty} $unit',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black87,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
       ],
     );
   }
@@ -687,87 +637,65 @@ class _StockTrendPageState extends State<StockTrendPage> {
       return const SizedBox.shrink();
     }
 
-    final chartPoints = <_TrendChartPoint>[];
-
-    for (final item in dailyData) {
-      chartPoints.add(
-        _TrendChartPoint(
-          label: _formatShortDate(item.date),
-          value: item.qty.toDouble(),
-          isPrediction: false,
-        ),
+    final chartPoints = dailyData.map((item) {
+      return _TrendChartPoint(
+        label: _formatShortDate(item.date),
+        fullLabel: _formatDate(item.date),
+        value: item.qty.toDouble(),
       );
-    }
+    }).toList();
 
-    if (result != null && dailyData.length >= 3) {
-      for (final item in result.predictedDaily) {
-        chartPoints.add(
-          _TrendChartPoint(
-            label: _formatShortDate(item.date),
-            value: item.qty.toDouble(),
-            isPrediction: true,
-          ),
-        );
-      }
-    }
+    final chartWidth = math.max(
+      MediaQuery.of(context).size.width - 80,
+      chartPoints.length * 72.0,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Grafik Tren Stok Keluar',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
+        _buildSectionTitle(
+          title: 'Grafik Tren Stok Keluar',
+          subtitle:
+              'Setiap titik menunjukkan total stok keluar pada tanggal tersebut. Garis putus-putus menunjukkan arah tren linear regression.',
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'Garis hijau menunjukkan data aktual, sedangkan garis oranye menunjukkan prediksi 7 hari berikutnya.',
-          style: TextStyle(
-            color: Colors.black54,
-            fontSize: 11,
-            height: 1.2,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          height: 260,
+        _buildCleanCard(
           padding: const EdgeInsets.all(14),
-          decoration: const BoxDecoration(
-            image: DecorationImage(
-              image: AssetImage('assets/batch/cardsum.png'),
-              fit: BoxFit.fill,
-            ),
-          ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: CustomPaint(
-                  painter: _TrendLineChartPainter(
-                    points: chartPoints,
-                    actualColor: const Color(0xFF038E1B),
-                    predictionColor: Colors.orange.shade600,
-                    gridColor: Colors.black.withOpacity(0.12),
-                    textColor: Colors.black54,
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: SizedBox(
+                  width: chartWidth,
+                  height: 260,
+                  child: CustomPaint(
+                    painter: _TrendLineChartPainter(
+                      points: chartPoints,
+                      regressionResult: result,
+                      actualColor: const Color(0xFF038E1B),
+                      trendColor: Colors.orange.shade600,
+                      gridColor: Colors.black.withOpacity(0.12),
+                      textColor: Colors.black54,
+                    ),
+                    child: Container(),
                   ),
-                  child: Container(),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   _buildLegendItem(
                     color: const Color(0xFF038E1B),
-                    label: 'Aktual',
+                    label: 'Data Aktual',
+                    isDashed: false,
                   ),
                   const SizedBox(width: 16),
                   _buildLegendItem(
                     color: Colors.orange.shade600,
-                    label: 'Prediksi',
+                    label: 'Garis Tren',
+                    isDashed: true,
                   ),
                 ],
               ),
@@ -781,16 +709,19 @@ class _StockTrendPageState extends State<StockTrendPage> {
   Widget _buildLegendItem({
     required Color color,
     required String label,
+    required bool isDashed,
   }) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 18,
-          height: 4,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(99),
+        SizedBox(
+          width: 22,
+          height: 8,
+          child: CustomPaint(
+            painter: _LegendLinePainter(
+              color: color,
+              isDashed: isDashed,
+            ),
           ),
         ),
         const SizedBox(width: 6),
@@ -808,11 +739,11 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
   Widget _buildNotEnoughDataCard(int dailyDataCount) {
     return Container(
-      margin: const EdgeInsets.only(top: 12),
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.orange.shade200),
       ),
       child: Row(
@@ -872,12 +803,17 @@ class _StockTrendPageState extends State<StockTrendPage> {
               ),
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.black87,
-              fontWeight: FontWeight.bold,
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.black87,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -895,9 +831,9 @@ class _StockTrendPageState extends State<StockTrendPage> {
         vertical: 4,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.4)),
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: color.withOpacity(0.35)),
       ),
       child: Text(
         text,
@@ -918,36 +854,26 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Data Harian Stok Keluar',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
+        _buildSectionTitle(
+          title: 'Data Harian Stok Keluar',
+          subtitle:
+              'Data harian diambil dari transaksi stok keluar berdasarkan produk yang dipilih.',
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'Data harian diambil dari transaksi stok keluar berdasarkan produk yang dipilih.',
-          style: TextStyle(
-            color: Colors.black54,
-            fontSize: 11,
-            height: 1.2,
-          ),
-        ),
-        const SizedBox(height: 12),
         ...dailyData.map((item) {
           return Container(
+            width: double.infinity,
             margin: const EdgeInsets.only(bottom: 12),
-            constraints: const BoxConstraints(minHeight: 70),
-            decoration: const BoxDecoration(
-              image: DecorationImage(
-                image: AssetImage('assets/batch/cardbatch.png'),
-                fit: BoxFit.fill,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.045),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Colors.blue.withOpacity(0.14),
+                width: 1,
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
               child: Row(
                 children: [
                   CircleAvatar(
@@ -963,7 +889,6 @@ class _StockTrendPageState extends State<StockTrendPage> {
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
                           _formatDate(item.date),
@@ -979,10 +904,15 @@ class _StockTrendPageState extends State<StockTrendPage> {
                           style: const TextStyle(
                             color: Colors.black54,
                             fontSize: 12,
+                            height: 1.25,
                           ),
                         ),
                       ],
                     ),
+                  ),
+                  _buildStatusChip(
+                    text: '${item.qty} $unit',
+                    color: Colors.blue.shade600,
                   ),
                 ],
               ),
@@ -1007,7 +937,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: Colors.red.shade50,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             border: Border.all(color: Colors.red.shade200),
           ),
           child: Text(
@@ -1023,53 +953,57 @@ class _StockTrendPageState extends State<StockTrendPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(60.0),
-        child: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
-          leading: IconButton(
-            icon: const Icon(
-              Icons.keyboard_double_arrow_left,
-              color: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-            },
+  PreferredSizeWidget _buildAppBar() {
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(60.0),
+      child: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(
+            Icons.keyboard_double_arrow_left,
+            color: Colors.white,
           ),
-          title: const Text(
-            'ANALISIS TREN',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              letterSpacing: 1.2,
-            ),
+          onPressed: () {
+            Navigator.pop(context);
+          },
+        ),
+        title: const Text(
+          'ANALISIS TREN',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            letterSpacing: 1.2,
           ),
-          flexibleSpace: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Color(0xFF015816),
-                  Color(0xFF038E1B),
-                  Color(0xFF84E977),
-                ],
-                stops: [0.0, 0.5, 1.0],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.vertical(
-                bottom: Radius.circular(20),
-              ),
+        ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFF015816),
+                Color(0xFF038E1B),
+                Color(0xFF84E977),
+              ],
+              stops: [0.0, 0.5, 1.0],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.vertical(
+              bottom: Radius.circular(20),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAFAFA),
+      appBar: _buildAppBar(),
       body: _isLoadingProducts
           ? _buildLoadingState()
           : StreamBuilder<List<TransactionModel>>(
@@ -1093,45 +1027,52 @@ class _StockTrendPageState extends State<StockTrendPage> {
                       horizontal: 16,
                       vertical: 24,
                     ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.black12, width: 1),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
+                    physics: const ClampingScrollPhysics(),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 620),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: Colors.black12, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 20,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildProductFilter(),
-                          const SizedBox(height: 24),
-                          _buildAnalysisResult(
-                            dailyData: dailyData,
-                            result: regressionResult,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 20,
                           ),
-                          const SizedBox(height: 24),
-                          _buildTrendChartSection(
-                            dailyData: dailyData,
-                            result: regressionResult,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildProductFilter(),
+                              const SizedBox(height: 24),
+                              _buildAnalysisResult(
+                                dailyData: dailyData,
+                                result: regressionResult,
+                              ),
+                              const SizedBox(height: 24),
+                              _buildTrendChartSection(
+                                dailyData: dailyData,
+                                result: regressionResult,
+                              ),
+                              const SizedBox(height: 24),
+                              _buildPredictionCard(
+                                result: regressionResult,
+                                dailyData: dailyData,
+                              ),
+                              const SizedBox(height: 24),
+                              _buildDailyDataList(dailyData),
+                              const SizedBox(height: 12),
+                            ],
                           ),
-                          const SizedBox(height: 24),
-                          _buildPredictionCard(
-                            result: regressionResult,
-                            dailyData: dailyData,
-                          ),
-                          const SizedBox(height: 24),
-                          _buildDailyDataList(dailyData),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -1152,16 +1093,6 @@ class _DailyStockOut {
   });
 }
 
-class _PredictedStockOut {
-  final DateTime date;
-  final int qty;
-
-  _PredictedStockOut({
-    required this.date,
-    required this.qty,
-  });
-}
-
 class _RegressionResult {
   final double slope;
   final double intercept;
@@ -1169,7 +1100,6 @@ class _RegressionResult {
   final int totalQty;
   final double averageQty;
   final double estimatedNext7Days;
-  final List<_PredictedStockOut> predictedDaily;
 
   _RegressionResult({
     required this.slope,
@@ -1178,33 +1108,82 @@ class _RegressionResult {
     required this.totalQty,
     required this.averageQty,
     required this.estimatedNext7Days,
-    required this.predictedDaily,
   });
 }
 
 class _TrendChartPoint {
   final String label;
+  final String fullLabel;
   final double value;
-  final bool isPrediction;
 
   _TrendChartPoint({
     required this.label,
+    required this.fullLabel,
     required this.value,
-    required this.isPrediction,
   });
+}
+
+class _LegendLinePainter extends CustomPainter {
+  final Color color;
+  final bool isDashed;
+
+  _LegendLinePainter({
+    required this.color,
+    required this.isDashed,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    if (!isDashed) {
+      canvas.drawLine(
+        Offset(0, size.height / 2),
+        Offset(size.width, size.height / 2),
+        paint,
+      );
+      return;
+    }
+
+    double startX = 0;
+    const dashWidth = 6;
+    const dashSpace = 4;
+
+    while (startX < size.width) {
+      final endX = math.min(startX + dashWidth, size.width);
+
+      canvas.drawLine(
+        Offset(startX, size.height / 2),
+        Offset(endX.toDouble(), size.height / 2),
+        paint,
+      );
+
+      startX += dashWidth + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LegendLinePainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.isDashed != isDashed;
+  }
 }
 
 class _TrendLineChartPainter extends CustomPainter {
   final List<_TrendChartPoint> points;
+  final _RegressionResult? regressionResult;
   final Color actualColor;
-  final Color predictionColor;
+  final Color trendColor;
   final Color gridColor;
   final Color textColor;
 
   _TrendLineChartPainter({
     required this.points,
+    required this.regressionResult,
     required this.actualColor,
-    required this.predictionColor,
+    required this.trendColor,
     required this.gridColor,
     required this.textColor,
   });
@@ -1215,9 +1194,9 @@ class _TrendLineChartPainter extends CustomPainter {
 
     final chartRect = Rect.fromLTWH(
       42,
-      12,
-      size.width - 56,
-      size.height - 48,
+      18,
+      size.width - 58,
+      size.height - 62,
     );
 
     final maxValueRaw = points.fold<double>(
@@ -1225,7 +1204,18 @@ class _TrendLineChartPainter extends CustomPainter {
       (maxValue, item) => math.max(maxValue, item.value),
     );
 
-    final maxValue = maxValueRaw <= 0 ? 1.0 : maxValueRaw * 1.2;
+    double maxTrendValue = 0;
+
+    if (regressionResult != null && points.length >= 3) {
+      for (int i = 0; i < points.length; i++) {
+        final trendValue =
+            regressionResult!.intercept + (regressionResult!.slope * i);
+        maxTrendValue = math.max(maxTrendValue, trendValue);
+      }
+    }
+
+    final maxValueBase = math.max(maxValueRaw, maxTrendValue);
+    final maxValue = maxValueBase <= 0 ? 1.0 : maxValueBase * 1.25;
 
     final gridPaint = Paint()
       ..color = gridColor
@@ -1241,18 +1231,18 @@ class _TrendLineChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final predictionPaint = Paint()
-      ..color = predictionColor
-      ..strokeWidth = 2.8
+    final trendPaint = Paint()
+      ..color = trendColor
+      ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final pointActualPaint = Paint()
+    final pointPaint = Paint()
       ..color = actualColor
       ..style = PaintingStyle.fill;
 
-    final pointPredictionPaint = Paint()
-      ..color = predictionColor
+    final pointHaloPaint = Paint()
+      ..color = actualColor.withOpacity(0.13)
       ..style = PaintingStyle.fill;
 
     for (int i = 0; i <= 4; i++) {
@@ -1265,6 +1255,7 @@ class _TrendLineChartPainter extends CustomPainter {
       );
 
       final labelValue = maxValue - ((maxValue / 4) * i);
+
       _drawText(
         canvas: canvas,
         text: labelValue.round().toString(),
@@ -1302,45 +1293,45 @@ class _TrendLineChartPainter extends CustomPainter {
     }
 
     final actualPath = Path();
-    bool actualPathStarted = false;
 
-    for (int i = 0; i < points.length; i++) {
-      if (points[i].isPrediction) continue;
-
-      if (!actualPathStarted) {
+    for (int i = 0; i < pointOffsets.length; i++) {
+      if (i == 0) {
         actualPath.moveTo(pointOffsets[i].dx, pointOffsets[i].dy);
-        actualPathStarted = true;
       } else {
         actualPath.lineTo(pointOffsets[i].dx, pointOffsets[i].dy);
       }
     }
 
-    if (actualPathStarted) {
+    if (pointOffsets.length > 1) {
       canvas.drawPath(actualPath, actualPaint);
     }
 
-    final firstPredictionIndex = points.indexWhere((item) => item.isPrediction);
+    if (regressionResult != null && points.length >= 3) {
+      final trendPath = Path();
 
-    if (firstPredictionIndex != -1) {
-      final predictionPath = Path();
+      for (int i = 0; i < points.length; i++) {
+        final x = points.length == 1
+            ? chartRect.center.dx
+            : chartRect.left + (chartRect.width / (points.length - 1)) * i;
 
-      final startIndex = firstPredictionIndex > 0
-          ? firstPredictionIndex - 1
-          : firstPredictionIndex;
+        final rawTrendValue =
+            regressionResult!.intercept + (regressionResult!.slope * i);
 
-      predictionPath.moveTo(
-        pointOffsets[startIndex].dx,
-        pointOffsets[startIndex].dy,
-      );
+        final trendValue = rawTrendValue < 0 ? 0 : rawTrendValue;
+        final y =
+            chartRect.bottom - ((trendValue / maxValue) * chartRect.height);
 
-      for (int i = firstPredictionIndex; i < points.length; i++) {
-        predictionPath.lineTo(pointOffsets[i].dx, pointOffsets[i].dy);
+        if (i == 0) {
+          trendPath.moveTo(x, y);
+        } else {
+          trendPath.lineTo(x, y);
+        }
       }
 
       _drawDashedPath(
         canvas,
-        predictionPath,
-        predictionPaint,
+        trendPath,
+        trendPaint,
       );
     }
 
@@ -1348,36 +1339,26 @@ class _TrendLineChartPainter extends CustomPainter {
       final point = points[i];
       final offset = pointOffsets[i];
 
-      canvas.drawCircle(
-        offset,
-        point.isPrediction ? 3.8 : 4.2,
-        point.isPrediction ? pointPredictionPaint : pointActualPaint,
-      );
-
-      canvas.drawCircle(
-        offset,
-        point.isPrediction ? 6.2 : 6.5,
-        Paint()
-          ..color = (point.isPrediction ? predictionColor : actualColor)
-              .withOpacity(0.12)
-          ..style = PaintingStyle.fill,
-      );
-    }
-
-    final labelInterval = points.length <= 7 ? 1 : (points.length / 5).ceil();
-
-    for (int i = 0; i < points.length; i++) {
-      if (i % labelInterval != 0 && i != points.length - 1) continue;
-
-      final offset = pointOffsets[i];
+      canvas.drawCircle(offset, 7, pointHaloPaint);
+      canvas.drawCircle(offset, 4.4, pointPaint);
 
       _drawText(
         canvas: canvas,
-        text: points[i].label,
-        offset: Offset(offset.dx - 18, chartRect.bottom + 8),
+        text: point.value.round().toString(),
+        offset: Offset(offset.dx - 18, offset.dy - 24),
+        color: actualColor,
+        fontSize: 10,
+        maxWidth: 36,
+        textAlign: TextAlign.center,
+      );
+
+      _drawText(
+        canvas: canvas,
+        text: point.label,
+        offset: Offset(offset.dx - 22, chartRect.bottom + 10),
         color: textColor,
-        fontSize: 9,
-        maxWidth: 40,
+        fontSize: 9.5,
+        maxWidth: 44,
         textAlign: TextAlign.center,
       );
     }
@@ -1436,7 +1417,10 @@ class _TrendLineChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TrendLineChartPainter oldDelegate) {
     return oldDelegate.points != points ||
+        oldDelegate.regressionResult != regressionResult ||
         oldDelegate.actualColor != actualColor ||
-        oldDelegate.predictionColor != predictionColor;
+        oldDelegate.trendColor != trendColor ||
+        oldDelegate.gridColor != gridColor ||
+        oldDelegate.textColor != textColor;
   }
 }

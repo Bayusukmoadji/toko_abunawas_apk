@@ -29,11 +29,14 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 
   static const String _allProductsValue = 'all';
 
-  List<ProductModel> _products = [];
-  String _selectedProductId = _allProductsValue;
-  DateTimeRange? _selectedDateRange;
-  _TransactionTypeFilter _selectedTypeFilter = _TransactionTypeFilter.all;
+  final ValueNotifier<String> _selectedProductIdNotifier =
+      ValueNotifier<String>(_allProductsValue);
+  final ValueNotifier<DateTimeRange?> _selectedDateRangeNotifier =
+      ValueNotifier<DateTimeRange?>(null);
+  final ValueNotifier<_TransactionTypeFilter> _selectedTypeFilterNotifier =
+      ValueNotifier<_TransactionTypeFilter>(_TransactionTypeFilter.all);
 
+  List<ProductModel> _products = [];
   bool _isLoadingProducts = true;
 
   final BoxShadow _softShadow = BoxShadow(
@@ -46,6 +49,14 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   void initState() {
     super.initState();
     _loadProducts();
+  }
+
+  @override
+  void dispose() {
+    _selectedProductIdNotifier.dispose();
+    _selectedDateRangeNotifier.dispose();
+    _selectedTypeFilterNotifier.dispose();
+    super.dispose();
   }
 
   Future<void> _loadProducts() async {
@@ -142,13 +153,16 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     return Icons.receipt_long;
   }
 
-  String _getSelectedProductName() {
-    if (_selectedProductId == _allProductsValue) {
+  String _getSelectedProductName({String? selectedProductId}) {
+    final currentProductId =
+        selectedProductId ?? _selectedProductIdNotifier.value;
+
+    if (currentProductId == _allProductsValue) {
       return 'Semua Produk';
     }
 
     final matchedProducts = _products.where(
-      (product) => product.id == _selectedProductId,
+      (product) => product.id == currentProductId,
     );
 
     if (matchedProducts.isEmpty) {
@@ -158,16 +172,24 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     return matchedProducts.first.name;
   }
 
-  String _getSelectedPeriodText() {
-    if (_selectedDateRange == null) {
+  String _getSelectedPeriodText({DateTimeRange? selectedDateRange}) {
+    final currentDateRange =
+        selectedDateRange ?? _selectedDateRangeNotifier.value;
+
+    if (currentDateRange == null) {
       return 'Semua Periode';
     }
 
-    return '${_formatDate(_selectedDateRange!.start)} - ${_formatDate(_selectedDateRange!.end)}';
+    return '${_formatDate(currentDateRange.start)} - ${_formatDate(currentDateRange.end)}';
   }
 
-  String _getSelectedTypeText() {
-    switch (_selectedTypeFilter) {
+  String _getSelectedTypeText({
+    _TransactionTypeFilter? selectedTypeFilter,
+  }) {
+    final currentTypeFilter =
+        selectedTypeFilter ?? _selectedTypeFilterNotifier.value;
+
+    switch (currentTypeFilter) {
       case _TransactionTypeFilter.all:
         return 'Semua Transaksi';
       case _TransactionTypeFilter.stockIn:
@@ -177,28 +199,31 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     }
   }
 
-  List<TransactionModel> _filterTransactions(
-    List<TransactionModel> transactions,
-  ) {
+  List<TransactionModel> _filterTransactions({
+    required List<TransactionModel> transactions,
+    required String selectedProductId,
+    required DateTimeRange? selectedDateRange,
+    required _TransactionTypeFilter selectedTypeFilter,
+  }) {
     final filteredTransactions = transactions.where((transaction) {
       final transactionDate = transaction.createdAt.toDate();
 
-      final matchProduct = _selectedProductId == _allProductsValue ||
-          transaction.productId == _selectedProductId;
+      final matchProduct = selectedProductId == _allProductsValue ||
+          transaction.productId == selectedProductId;
 
       bool matchDate = true;
 
-      if (_selectedDateRange != null) {
+      if (selectedDateRange != null) {
         final start = DateTime(
-          _selectedDateRange!.start.year,
-          _selectedDateRange!.start.month,
-          _selectedDateRange!.start.day,
+          selectedDateRange.start.year,
+          selectedDateRange.start.month,
+          selectedDateRange.start.day,
         );
 
         final end = DateTime(
-          _selectedDateRange!.end.year,
-          _selectedDateRange!.end.month,
-          _selectedDateRange!.end.day,
+          selectedDateRange.end.year,
+          selectedDateRange.end.month,
+          selectedDateRange.end.day,
           23,
           59,
           59,
@@ -211,9 +236,9 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 
       bool matchType = true;
 
-      if (_selectedTypeFilter == _TransactionTypeFilter.stockIn) {
+      if (selectedTypeFilter == _TransactionTypeFilter.stockIn) {
         matchType = _isStockIn(transaction);
-      } else if (_selectedTypeFilter == _TransactionTypeFilter.stockOut) {
+      } else if (selectedTypeFilter == _TransactionTypeFilter.stockOut) {
         matchType = _isStockOut(transaction);
       }
 
@@ -229,12 +254,13 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
+    final currentDateRange = _selectedDateRangeNotifier.value;
 
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2024),
       lastDate: DateTime(2100),
-      initialDateRange: _selectedDateRange ??
+      initialDateRange: currentDateRange ??
           DateTimeRange(
             start: DateTime(now.year, now.month, 1),
             end: now,
@@ -242,8 +268,8 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: Colors.green.shade700,
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF038E1B),
               onPrimary: Colors.white,
               onSurface: Colors.black,
             ),
@@ -254,29 +280,25 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
 
     if (picked != null) {
-      setState(() {
-        _selectedDateRange = picked;
-      });
+      _selectedDateRangeNotifier.value = picked;
     }
   }
 
   void _resetFilter() {
-    setState(() {
-      _selectedProductId = _allProductsValue;
-      _selectedDateRange = null;
-      _selectedTypeFilter = _TransactionTypeFilter.all;
-    });
+    _selectedProductIdNotifier.value = _allProductsValue;
+    _selectedDateRangeNotifier.value = null;
+    _selectedTypeFilterNotifier.value = _TransactionTypeFilter.all;
   }
 
   int _calculateTotalStockIn(List<TransactionModel> transactions) {
     return transactions
-        .where((transaction) => transaction.type == 'stock_in')
+        .where(_isStockIn)
         .fold<int>(0, (total, transaction) => total + transaction.qty);
   }
 
   int _calculateTotalStockOut(List<TransactionModel> transactions) {
     return transactions
-        .where((transaction) => transaction.type == 'stock_out')
+        .where(_isStockOut)
         .fold<int>(0, (total, transaction) => total + transaction.qty);
   }
 
@@ -293,6 +315,10 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   ) async {
     final pdf = pw.Document();
     final now = DateTime.now();
+
+    final selectedProductId = _selectedProductIdNotifier.value;
+    final selectedDateRange = _selectedDateRangeNotifier.value;
+    final selectedTypeFilter = _selectedTypeFilterNotifier.value;
 
     final totalStockIn = _calculateTotalStockIn(transactions);
     final totalStockOut = _calculateTotalStockOut(transactions);
@@ -331,9 +357,15 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                     ),
                   ),
                   pw.SizedBox(height: 6),
-                  pw.Text('Produk/Merk: ${_getSelectedProductName()}'),
-                  pw.Text('Jenis Transaksi: ${_getSelectedTypeText()}'),
-                  pw.Text('Periode: ${_getSelectedPeriodText()}'),
+                  pw.Text(
+                    'Produk/Merk: ${_getSelectedProductName(selectedProductId: selectedProductId)}',
+                  ),
+                  pw.Text(
+                    'Jenis Transaksi: ${_getSelectedTypeText(selectedTypeFilter: selectedTypeFilter)}',
+                  ),
+                  pw.Text(
+                    'Periode: ${_getSelectedPeriodText(selectedDateRange: selectedDateRange)}',
+                  ),
                 ],
               ),
             ),
@@ -573,15 +605,15 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     required String label,
     required IconData icon,
     required _TransactionTypeFilter filter,
+    required _TransactionTypeFilter selectedTypeFilter,
   }) {
-    final isSelected = _selectedTypeFilter == filter;
+    final isSelected = selectedTypeFilter == filter;
 
     return Expanded(
       child: InkWell(
         onTap: () {
-          setState(() {
-            _selectedTypeFilter = filter;
-          });
+          if (_selectedTypeFilterNotifier.value == filter) return;
+          _selectedTypeFilterNotifier.value = filter;
         },
         borderRadius: BorderRadius.circular(14),
         child: AnimatedContainer(
@@ -589,7 +621,19 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
           curve: Curves.easeOut,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF038E1B) : Colors.white,
+            gradient: isSelected
+                ? const LinearGradient(
+                    colors: [
+                      Color(0xFF015816),
+                      Color(0xFF038E1B),
+                      Color(0xFF84E977),
+                    ],
+                    stops: [0.0, 0.55, 1.0],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: isSelected ? null : Colors.white,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isSelected
@@ -597,6 +641,15 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                   : const Color(0xFFDADADA),
               width: 1,
             ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.10),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : [],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -626,8 +679,13 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildFilterSection() {
-    final selectedPeriodText = _getSelectedPeriodText();
+  Widget _buildFilterSection({
+    required String selectedProductId,
+    required DateTimeRange? selectedDateRange,
+    required _TransactionTypeFilter selectedTypeFilter,
+  }) {
+    final selectedPeriodText =
+        _getSelectedPeriodText(selectedDateRange: selectedDateRange);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -644,7 +702,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               DropdownButtonFormField<String>(
-                value: _selectedProductId,
+                value: selectedProductId,
                 isExpanded: true,
                 icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
                 decoration: InputDecoration(
@@ -692,9 +750,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                     ? null
                     : (value) {
                         if (value == null) return;
-                        setState(() {
-                          _selectedProductId = value;
-                        });
+                        _selectedProductIdNotifier.value = value;
                       },
               ),
               const SizedBox(height: 14),
@@ -713,18 +769,21 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                     label: 'Semua',
                     icon: Icons.all_inclusive,
                     filter: _TransactionTypeFilter.all,
+                    selectedTypeFilter: selectedTypeFilter,
                   ),
                   const SizedBox(width: 8),
                   _buildTypeFilterChip(
                     label: 'Masuk',
                     icon: Icons.call_received_rounded,
                     filter: _TransactionTypeFilter.stockIn,
+                    selectedTypeFilter: selectedTypeFilter,
                   ),
                   const SizedBox(width: 8),
                   _buildTypeFilterChip(
                     label: 'Keluar',
                     icon: Icons.call_made_rounded,
                     filter: _TransactionTypeFilter.stockOut,
+                    selectedTypeFilter: selectedTypeFilter,
                   ),
                 ],
               ),
@@ -750,6 +809,17 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                   ),
                 ],
               ),
+              if (selectedDateRange != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Periode aktif: $selectedPeriodText',
+                  style: const TextStyle(
+                    color: Colors.black54,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1297,6 +1367,93 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
+  Widget _buildPageContent({
+    required List<TransactionModel> allTransactions,
+    required String selectedProductId,
+    required DateTimeRange? selectedDateRange,
+    required _TransactionTypeFilter selectedTypeFilter,
+  }) {
+    final filteredTransactions = _filterTransactions(
+      transactions: allTransactions,
+      selectedProductId: selectedProductId,
+      selectedDateRange: selectedDateRange,
+      selectedTypeFilter: selectedTypeFilter,
+    );
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        key: const PageStorageKey<String>('transaction_history_scroll'),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        physics: const ClampingScrollPhysics(),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.black12, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 20,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildFilterSection(
+                    selectedProductId: selectedProductId,
+                    selectedDateRange: selectedDateRange,
+                    selectedTypeFilter: selectedTypeFilter,
+                  ),
+                  const SizedBox(height: 24),
+                  _buildSummary(filteredTransactions),
+                  const SizedBox(height: 24),
+                  _buildTransactionList(
+                    allTransactions: allTransactions,
+                    filteredTransactions: filteredTransactions,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilteredContent(List<TransactionModel> allTransactions) {
+    return ValueListenableBuilder<String>(
+      valueListenable: _selectedProductIdNotifier,
+      builder: (context, selectedProductId, _) {
+        return ValueListenableBuilder<DateTimeRange?>(
+          valueListenable: _selectedDateRangeNotifier,
+          builder: (context, selectedDateRange, _) {
+            return ValueListenableBuilder<_TransactionTypeFilter>(
+              valueListenable: _selectedTypeFilterNotifier,
+              builder: (context, selectedTypeFilter, _) {
+                return _buildPageContent(
+                  allTransactions: allTransactions,
+                  selectedProductId: selectedProductId,
+                  selectedDateRange: selectedDateRange,
+                  selectedTypeFilter: selectedTypeFilter,
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1305,7 +1462,8 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
       body: StreamBuilder<List<TransactionModel>>(
         stream: _transactionRepository.getTransactionsStream(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting ||
+          if ((snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) ||
               _isLoadingProducts) {
             return _buildLoadingState();
           }
@@ -1315,51 +1473,8 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
           }
 
           final allTransactions = snapshot.data ?? [];
-          final filteredTransactions = _filterTransactions(allTransactions);
 
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              physics: const ClampingScrollPhysics(),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 620),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.black12, width: 1),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 20,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildFilterSection(),
-                        const SizedBox(height: 24),
-                        _buildSummary(filteredTransactions),
-                        const SizedBox(height: 24),
-                        _buildTransactionList(
-                          allTransactions: allTransactions,
-                          filteredTransactions: filteredTransactions,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
+          return _buildFilteredContent(allTransactions);
         },
       ),
     );

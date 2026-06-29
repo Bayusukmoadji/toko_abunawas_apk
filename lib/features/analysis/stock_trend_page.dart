@@ -180,11 +180,25 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
     final averageQty = totalQty / data.length;
 
+    final predictedDaily = <_PredictedStockOut>[];
     double estimatedNext7Days = 0;
 
-    for (int i = n; i < n + 7; i++) {
-      final prediction = intercept + (slope * i);
-      estimatedNext7Days += prediction < 0 ? 0 : prediction;
+    final lastDate = data.last.date;
+
+    for (int i = 0; i < 7; i++) {
+      final x = n + i;
+      final rawPrediction = intercept + (slope * x);
+      final double prediction = rawPrediction < 0 ? 0.0 : rawPrediction;
+      final roundedPrediction = prediction.round();
+
+      predictedDaily.add(
+        _PredictedStockOut(
+          date: lastDate.add(Duration(days: i + 1)),
+          qty: roundedPrediction,
+        ),
+      );
+
+      estimatedNext7Days += prediction;
     }
 
     String trendStatus;
@@ -204,6 +218,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
       totalQty: totalQty,
       averageQty: averageQty,
       estimatedNext7Days: estimatedNext7Days,
+      predictedDaily: predictedDaily,
     );
   }
 
@@ -637,7 +652,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
       return const SizedBox.shrink();
     }
 
-    final chartPoints = dailyData.map((item) {
+    final actualPoints = dailyData.map((item) {
       return _TrendChartPoint(
         label: _formatShortDate(item.date),
         fullLabel: _formatDate(item.date),
@@ -645,59 +660,98 @@ class _StockTrendPageState extends State<StockTrendPage> {
       );
     }).toList();
 
-    final chartWidth = math.max(
-      MediaQuery.of(context).size.width - 80,
-      chartPoints.length * 72.0,
-    );
+    final predictionPoints = result == null || dailyData.length < 3
+        ? <_TrendChartPoint>[]
+        : result.predictedDaily.map((item) {
+            return _TrendChartPoint(
+              label: _formatShortDate(item.date),
+              fullLabel: _formatDate(item.date),
+              value: item.qty.toDouble(),
+            );
+          }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle(
-          title: 'Grafik Tren Stok Keluar',
+          title: 'Grafik Tren dan Prediksi Stok Keluar 7 Hari ke Depan',
           subtitle:
-              'Setiap titik menunjukkan total stok keluar pada tanggal tersebut. Garis putus-putus menunjukkan arah tren linear regression.',
+              'Grafik menampilkan data aktual, garis tren regresi, dan prediksi stok keluar selama 7 hari berikutnya.',
         ),
         _buildCleanCard(
           padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: SizedBox(
-                  width: chartWidth,
-                  height: 260,
-                  child: CustomPaint(
-                    painter: _TrendLineChartPainter(
-                      points: chartPoints,
-                      regressionResult: result,
-                      actualColor: const Color(0xFF038E1B),
-                      trendColor: Colors.orange.shade600,
-                      gridColor: Colors.black.withOpacity(0.12),
-                      textColor: Colors.black54,
-                    ),
-                    child: Container(),
+              const Text(
+                'Sumbu Y: Total Stok Keluar (Karung)',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                height: 260,
+                child: CustomPaint(
+                  painter: _TrendLineChartPainter(
+                    actualPoints: actualPoints,
+                    predictionPoints: predictionPoints,
+                    regressionResult: result,
+                    actualColor: const Color(0xFF038E1B),
+                    trendColor: Colors.orange.shade600,
+                    predictionColor: Colors.deepPurple.shade500,
+                    forecastAreaColor: Colors.deepPurple.shade50,
+                    gridColor: Colors.black.withOpacity(0.12),
+                    textColor: Colors.black54,
+                  ),
+                  child: Container(),
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Center(
+                child: Text(
+                  'Sumbu X: Tanggal',
+                  style: TextStyle(
+                    color: Colors.black54,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              const SizedBox(height: 14),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 16,
+                runSpacing: 8,
                 children: [
                   _buildLegendItem(
                     color: const Color(0xFF038E1B),
                     label: 'Data Aktual',
                     isDashed: false,
                   ),
-                  const SizedBox(width: 16),
                   _buildLegendItem(
                     color: Colors.orange.shade600,
                     label: 'Garis Tren',
                     isDashed: true,
                   ),
+                  _buildLegendItem(
+                    color: Colors.deepPurple.shade500,
+                    label: 'Prediksi 7 Hari',
+                    isDashed: false,
+                  ),
                 ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Area berwarna samar menunjukkan periode forecast 7 hari setelah data aktual terakhir.',
+                style: TextStyle(
+                  color: Colors.black54,
+                  fontSize: 10,
+                  height: 1.3,
+                ),
               ),
             ],
           ),
@@ -715,7 +769,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
-          width: 22,
+          width: 24,
           height: 8,
           child: CustomPaint(
             painter: _LegendLinePainter(
@@ -1093,6 +1147,16 @@ class _DailyStockOut {
   });
 }
 
+class _PredictedStockOut {
+  final DateTime date;
+  final int qty;
+
+  _PredictedStockOut({
+    required this.date,
+    required this.qty,
+  });
+}
+
 class _RegressionResult {
   final double slope;
   final double intercept;
@@ -1100,6 +1164,7 @@ class _RegressionResult {
   final int totalQty;
   final double averageQty;
   final double estimatedNext7Days;
+  final List<_PredictedStockOut> predictedDaily;
 
   _RegressionResult({
     required this.slope,
@@ -1108,6 +1173,7 @@ class _RegressionResult {
     required this.totalQty,
     required this.averageQty,
     required this.estimatedNext7Days,
+    required this.predictedDaily,
   });
 }
 
@@ -1172,49 +1238,69 @@ class _LegendLinePainter extends CustomPainter {
 }
 
 class _TrendLineChartPainter extends CustomPainter {
-  final List<_TrendChartPoint> points;
+  final List<_TrendChartPoint> actualPoints;
+  final List<_TrendChartPoint> predictionPoints;
   final _RegressionResult? regressionResult;
   final Color actualColor;
   final Color trendColor;
+  final Color predictionColor;
+  final Color forecastAreaColor;
   final Color gridColor;
   final Color textColor;
 
   _TrendLineChartPainter({
-    required this.points,
+    required this.actualPoints,
+    required this.predictionPoints,
     required this.regressionResult,
     required this.actualColor,
     required this.trendColor,
+    required this.predictionColor,
+    required this.forecastAreaColor,
     required this.gridColor,
     required this.textColor,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
+    final allPoints = <_TrendChartPoint>[
+      ...actualPoints,
+      ...predictionPoints,
+    ];
+
+    if (allPoints.isEmpty) return;
 
     final chartRect = Rect.fromLTWH(
-      42,
-      18,
-      size.width - 58,
+      36,
+      26,
+      size.width - 46,
       size.height - 62,
     );
 
-    final maxValueRaw = points.fold<double>(
+    final maxActualValue = actualPoints.fold<double>(
+      0,
+      (maxValue, item) => math.max(maxValue, item.value),
+    );
+
+    final maxPredictionValue = predictionPoints.fold<double>(
       0,
       (maxValue, item) => math.max(maxValue, item.value),
     );
 
     double maxTrendValue = 0;
 
-    if (regressionResult != null && points.length >= 3) {
-      for (int i = 0; i < points.length; i++) {
+    if (regressionResult != null && actualPoints.length >= 3) {
+      for (int i = 0; i < actualPoints.length; i++) {
         final trendValue =
             regressionResult!.intercept + (regressionResult!.slope * i);
         maxTrendValue = math.max(maxTrendValue, trendValue);
       }
     }
 
-    final maxValueBase = math.max(maxValueRaw, maxTrendValue);
+    final maxValueBase = math.max(
+      math.max(maxActualValue, maxPredictionValue),
+      maxTrendValue,
+    );
+
     final maxValue = maxValueBase <= 0 ? 1.0 : maxValueBase * 1.25;
 
     final gridPaint = Paint()
@@ -1222,28 +1308,86 @@ class _TrendLineChartPainter extends CustomPainter {
       ..strokeWidth = 1;
 
     final axisPaint = Paint()
-      ..color = Colors.black.withOpacity(0.25)
+      ..color = Colors.black.withOpacity(0.28)
       ..strokeWidth = 1.2;
 
     final actualPaint = Paint()
       ..color = actualColor
-      ..strokeWidth = 2.8
+      ..strokeWidth = 2.6
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
     final trendPaint = Paint()
       ..color = trendColor
-      ..strokeWidth = 2.5
+      ..strokeWidth = 2.4
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final pointPaint = Paint()
+    final predictionPaint = Paint()
+      ..color = predictionColor
+      ..strokeWidth = 2.6
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final actualPointPaint = Paint()
       ..color = actualColor
       ..style = PaintingStyle.fill;
 
-    final pointHaloPaint = Paint()
+    final predictionPointPaint = Paint()
+      ..color = predictionColor
+      ..style = PaintingStyle.fill;
+
+    final actualHaloPaint = Paint()
       ..color = actualColor.withOpacity(0.13)
       ..style = PaintingStyle.fill;
+
+    final predictionHaloPaint = Paint()
+      ..color = predictionColor.withOpacity(0.13)
+      ..style = PaintingStyle.fill;
+
+    double getX(int index) {
+      if (allPoints.length == 1) return chartRect.center.dx;
+
+      return chartRect.left +
+          (chartRect.width / (allPoints.length - 1)) * index;
+    }
+
+    double getY(double value) {
+      return chartRect.bottom - ((value / maxValue) * chartRect.height);
+    }
+
+    if (predictionPoints.isNotEmpty && actualPoints.isNotEmpty) {
+      final lastActualIndex = actualPoints.length - 1;
+      final firstPredictionIndex = actualPoints.length;
+
+      final lastActualX = getX(lastActualIndex);
+      final firstPredictionX = getX(firstPredictionIndex);
+      final forecastStartX = (lastActualX + firstPredictionX) / 2;
+
+      final forecastRect = Rect.fromLTRB(
+        forecastStartX,
+        chartRect.top,
+        chartRect.right,
+        chartRect.bottom,
+      );
+
+      canvas.drawRect(
+        forecastRect,
+        Paint()
+          ..color = forecastAreaColor.withOpacity(0.75)
+          ..style = PaintingStyle.fill,
+      );
+
+      _drawText(
+        canvas: canvas,
+        text: 'Forecast 7 Hari',
+        offset: Offset(forecastStartX + 6, chartRect.top + 8),
+        color: predictionColor.withOpacity(0.85),
+        fontSize: 9,
+        maxWidth: 100,
+        textAlign: TextAlign.left,
+      );
+    }
 
     for (int i = 0; i <= 4; i++) {
       final y = chartRect.top + (chartRect.height / 4) * i;
@@ -1261,8 +1405,8 @@ class _TrendLineChartPainter extends CustomPainter {
         text: labelValue.round().toString(),
         offset: Offset(0, y - 8),
         color: textColor,
-        fontSize: 10,
-        maxWidth: 36,
+        fontSize: 9,
+        maxWidth: 30,
         textAlign: TextAlign.right,
       );
     }
@@ -1279,47 +1423,55 @@ class _TrendLineChartPainter extends CustomPainter {
       axisPaint,
     );
 
-    final pointOffsets = <Offset>[];
+    final actualOffsets = <Offset>[];
 
-    for (int i = 0; i < points.length; i++) {
-      final x = points.length == 1
-          ? chartRect.center.dx
-          : chartRect.left + (chartRect.width / (points.length - 1)) * i;
-
-      final normalizedValue = points[i].value / maxValue;
-      final y = chartRect.bottom - (normalizedValue * chartRect.height);
-
-      pointOffsets.add(Offset(x, y));
+    for (int i = 0; i < actualPoints.length; i++) {
+      actualOffsets.add(
+        Offset(
+          getX(i),
+          getY(actualPoints[i].value),
+        ),
+      );
     }
 
-    final actualPath = Path();
+    final predictionOffsets = <Offset>[];
 
-    for (int i = 0; i < pointOffsets.length; i++) {
-      if (i == 0) {
-        actualPath.moveTo(pointOffsets[i].dx, pointOffsets[i].dy);
-      } else {
-        actualPath.lineTo(pointOffsets[i].dx, pointOffsets[i].dy);
+    for (int i = 0; i < predictionPoints.length; i++) {
+      final allIndex = actualPoints.length + i;
+
+      predictionOffsets.add(
+        Offset(
+          getX(allIndex),
+          getY(predictionPoints[i].value),
+        ),
+      );
+    }
+
+    if (actualOffsets.length > 1) {
+      final actualPath = Path();
+
+      for (int i = 0; i < actualOffsets.length; i++) {
+        if (i == 0) {
+          actualPath.moveTo(actualOffsets[i].dx, actualOffsets[i].dy);
+        } else {
+          actualPath.lineTo(actualOffsets[i].dx, actualOffsets[i].dy);
+        }
       }
-    }
 
-    if (pointOffsets.length > 1) {
       canvas.drawPath(actualPath, actualPaint);
     }
 
-    if (regressionResult != null && points.length >= 3) {
+    if (regressionResult != null && actualPoints.length >= 3) {
       final trendPath = Path();
 
-      for (int i = 0; i < points.length; i++) {
-        final x = points.length == 1
-            ? chartRect.center.dx
-            : chartRect.left + (chartRect.width / (points.length - 1)) * i;
-
-        final rawTrendValue =
+      for (int i = 0; i < actualPoints.length; i++) {
+        final trendValue =
             regressionResult!.intercept + (regressionResult!.slope * i);
 
-        final trendValue = rawTrendValue < 0 ? 0 : rawTrendValue;
-        final y =
-            chartRect.bottom - ((trendValue / maxValue) * chartRect.height);
+        final double safeTrendValue = trendValue < 0 ? 0.0 : trendValue;
+
+        final x = getX(i);
+        final y = getY(safeTrendValue);
 
         if (i == 0) {
           trendPath.moveTo(x, y);
@@ -1335,30 +1487,72 @@ class _TrendLineChartPainter extends CustomPainter {
       );
     }
 
-    for (int i = 0; i < points.length; i++) {
-      final point = points[i];
-      final offset = pointOffsets[i];
+    if (predictionOffsets.isNotEmpty) {
+      final predictionPath = Path();
 
-      canvas.drawCircle(offset, 7, pointHaloPaint);
-      canvas.drawCircle(offset, 4.4, pointPaint);
+      if (actualOffsets.isNotEmpty) {
+        predictionPath.moveTo(
+          actualOffsets.last.dx,
+          actualOffsets.last.dy,
+        );
+      } else {
+        predictionPath.moveTo(
+          predictionOffsets.first.dx,
+          predictionOffsets.first.dy,
+        );
+      }
+
+      for (final offset in predictionOffsets) {
+        predictionPath.lineTo(offset.dx, offset.dy);
+      }
+
+      canvas.drawPath(predictionPath, predictionPaint);
+    }
+
+    for (int i = 0; i < actualOffsets.length; i++) {
+      final offset = actualOffsets[i];
+
+      canvas.drawCircle(offset, 6, actualHaloPaint);
+      canvas.drawCircle(offset, 3.8, actualPointPaint);
 
       _drawText(
         canvas: canvas,
-        text: point.value.round().toString(),
-        offset: Offset(offset.dx - 18, offset.dy - 24),
+        text: actualPoints[i].value.round().toString(),
+        offset: Offset(offset.dx - 15, offset.dy - 22),
         color: actualColor,
-        fontSize: 10,
-        maxWidth: 36,
+        fontSize: 9,
+        maxWidth: 30,
         textAlign: TextAlign.center,
       );
+    }
+
+    for (int i = 0; i < predictionOffsets.length; i++) {
+      final offset = predictionOffsets[i];
+
+      canvas.drawCircle(offset, 6, predictionHaloPaint);
+      canvas.drawCircle(offset, 3.8, predictionPointPaint);
 
       _drawText(
         canvas: canvas,
-        text: point.label,
-        offset: Offset(offset.dx - 22, chartRect.bottom + 10),
+        text: predictionPoints[i].value.round().toString(),
+        offset: Offset(offset.dx - 15, offset.dy - 22),
+        color: predictionColor,
+        fontSize: 8.5,
+        maxWidth: 30,
+        textAlign: TextAlign.center,
+      );
+    }
+
+    for (int i = 0; i < allPoints.length; i++) {
+      final offset = Offset(getX(i), chartRect.bottom);
+
+      _drawText(
+        canvas: canvas,
+        text: allPoints[i].label,
+        offset: Offset(offset.dx - 15, chartRect.bottom + 10),
         color: textColor,
-        fontSize: 9.5,
-        maxWidth: 44,
+        fontSize: 8,
+        maxWidth: 30,
         textAlign: TextAlign.center,
       );
     }
@@ -1368,8 +1562,8 @@ class _TrendLineChartPainter extends CustomPainter {
     Canvas canvas,
     Path path,
     Paint paint, {
-    double dashWidth = 8,
-    double dashSpace = 5,
+    double dashWidth = 7,
+    double dashSpace = 4,
   }) {
     for (final metric in path.computeMetrics()) {
       double distance = 0;
@@ -1416,10 +1610,13 @@ class _TrendLineChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TrendLineChartPainter oldDelegate) {
-    return oldDelegate.points != points ||
+    return oldDelegate.actualPoints != actualPoints ||
+        oldDelegate.predictionPoints != predictionPoints ||
         oldDelegate.regressionResult != regressionResult ||
         oldDelegate.actualColor != actualColor ||
         oldDelegate.trendColor != trendColor ||
+        oldDelegate.predictionColor != predictionColor ||
+        oldDelegate.forecastAreaColor != forecastAreaColor ||
         oldDelegate.gridColor != gridColor ||
         oldDelegate.textColor != textColor;
   }

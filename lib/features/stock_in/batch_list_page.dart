@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/models/batch_model.dart';
@@ -14,14 +15,88 @@ class BatchListPage extends StatefulWidget {
 class _BatchListPageState extends State<BatchListPage> {
   final BatchRepository _batchRepository = BatchRepository();
 
-  String _selectedStatusFilter = 'Semua';
+  static const int _pageLimit = 30;
+
+  String _selectedStatusFilter = 'Aktif';
   DateTime? _selectedReceivedDate;
+
+  List<BatchModel> _batches = [];
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  Object? _error;
+
+  DocumentSnapshot<Map<String, dynamic>>? _lastBatchDocument;
+  int _queryVersion = 0;
 
   final BoxShadow _softShadow = BoxShadow(
     color: Colors.black.withOpacity(0.07),
     blurRadius: 12,
     offset: const Offset(0, 4),
   );
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBatches(reset: true);
+  }
+
+  Future<void> _loadBatches({required bool reset}) async {
+    final currentVersion = ++_queryVersion;
+
+    if (reset) {
+      setState(() {
+        _batches = [];
+        _lastBatchDocument = null;
+        _hasMore = true;
+        _isLoading = true;
+        _isLoadingMore = false;
+        _error = null;
+      });
+    } else {
+      if (_isLoadingMore || !_hasMore) return;
+
+      setState(() {
+        _isLoadingMore = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final result = await _batchRepository.getBatchesPage(
+        statusFilter: _selectedStatusFilter,
+        receivedDate: _selectedReceivedDate,
+        limit: _pageLimit,
+        startAfterDocument: reset ? null : _lastBatchDocument,
+      );
+
+      if (!mounted || currentVersion != _queryVersion) return;
+
+      setState(() {
+        if (reset) {
+          _batches = result.batches;
+        } else {
+          _batches = [
+            ..._batches,
+            ...result.batches,
+          ];
+        }
+
+        _lastBatchDocument = result.lastDocument;
+        _hasMore = result.hasMore;
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted || currentVersion != _queryVersion) return;
+
+      setState(() {
+        _error = e;
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+    }
+  }
 
   String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
@@ -31,36 +106,32 @@ class _BatchListPageState extends State<BatchListPage> {
     return '$day/$month/$year';
   }
 
-  bool _isSameDate(DateTime firstDate, DateTime secondDate) {
-    return firstDate.year == secondDate.year &&
-        firstDate.month == secondDate.month &&
-        firstDate.day == secondDate.day;
+  bool _isBatchEmpty(BatchModel batch) {
+    final normalizedStatus = batch.status.toLowerCase().trim();
+
+    return normalizedStatus == 'empty' ||
+        normalizedStatus == 'depleted' ||
+        batch.remainingQty <= 0;
   }
 
-  Color _getStatusColor(String status) {
-    final normalizedStatus = status.toLowerCase().trim();
-
-    if (normalizedStatus == 'empty') {
+  Color _getBatchStatusColor(BatchModel batch) {
+    if (_isBatchEmpty(batch)) {
       return Colors.red.shade400;
     }
 
     return Colors.green.shade600;
   }
 
-  IconData _getStatusIcon(String status) {
-    final normalizedStatus = status.toLowerCase().trim();
-
-    if (normalizedStatus == 'empty') {
+  IconData _getBatchStatusIcon(BatchModel batch) {
+    if (_isBatchEmpty(batch)) {
       return Icons.cancel_outlined;
     }
 
     return Icons.inventory_2_outlined;
   }
 
-  String _getStatusText(String status) {
-    final normalizedStatus = status.toLowerCase().trim();
-
-    if (normalizedStatus == 'empty') {
+  String _getBatchStatusText(BatchModel batch) {
+    if (_isBatchEmpty(batch)) {
       return 'Habis';
     }
 
@@ -68,15 +139,11 @@ class _BatchListPageState extends State<BatchListPage> {
   }
 
   int _getActiveBatchCount(List<BatchModel> batches) {
-    return batches.where((batch) {
-      return batch.status.toLowerCase().trim() != 'empty';
-    }).length;
+    return batches.where((batch) => !_isBatchEmpty(batch)).length;
   }
 
   int _getEmptyBatchCount(List<BatchModel> batches) {
-    return batches.where((batch) {
-      return batch.status.toLowerCase().trim() == 'empty';
-    }).length;
+    return batches.where(_isBatchEmpty).length;
   }
 
   int _getTotalRemainingStock(List<BatchModel> batches) {
@@ -86,44 +153,13 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  List<BatchModel> _filterBatches(List<BatchModel> batches) {
-    final filteredBatches = batches.where((batch) {
-      final normalizedStatus = batch.status.toLowerCase().trim();
-
-      bool matchStatus = true;
-
-      if (_selectedStatusFilter == 'Aktif') {
-        matchStatus = normalizedStatus != 'empty';
-      } else if (_selectedStatusFilter == 'Habis') {
-        matchStatus = normalizedStatus == 'empty';
-      }
-
-      bool matchDate = true;
-
-      if (_selectedReceivedDate != null) {
-        matchDate = _isSameDate(
-          batch.receivedAt.toDate(),
-          _selectedReceivedDate!,
-        );
-      }
-
-      return matchStatus && matchDate;
-    }).toList();
-
-    filteredBatches.sort(
-      (a, b) => b.receivedAt.toDate().compareTo(a.receivedAt.toDate()),
-    );
-
-    return filteredBatches;
-  }
-
   String _getFilterDescription() {
     final statusText = _selectedStatusFilter;
     final dateText = _selectedReceivedDate == null
         ? 'Semua tanggal'
         : _formatDate(_selectedReceivedDate!);
 
-    return '$statusText • $dateText';
+    return '$statusText • $dateText • ${_batches.length} data dimuat';
   }
 
   Future<void> _pickReceivedDate({
@@ -157,6 +193,7 @@ class _BatchListPageState extends State<BatchListPage> {
     });
 
     setModalState?.call(() {});
+    _loadBatches(reset: true);
   }
 
   void _clearReceivedDate({
@@ -167,17 +204,33 @@ class _BatchListPageState extends State<BatchListPage> {
     });
 
     setModalState?.call(() {});
+    _loadBatches(reset: true);
   }
 
   void _resetFilter({
     StateSetter? setModalState,
   }) {
     setState(() {
-      _selectedStatusFilter = 'Semua';
+      _selectedStatusFilter = 'Aktif';
       _selectedReceivedDate = null;
     });
 
     setModalState?.call(() {});
+    _loadBatches(reset: true);
+  }
+
+  void _setStatusFilter({
+    required String status,
+    required StateSetter setModalState,
+  }) {
+    if (_selectedStatusFilter == status) return;
+
+    setState(() {
+      _selectedStatusFilter = status;
+    });
+
+    setModalState(() {});
+    _loadBatches(reset: true);
   }
 
   void _showFilterBottomSheet() {
@@ -254,10 +307,10 @@ class _BatchListPageState extends State<BatchListPage> {
                             child: InkWell(
                               borderRadius: BorderRadius.circular(14),
                               onTap: () {
-                                setState(() {
-                                  _selectedStatusFilter = status;
-                                });
-                                setModalState(() {});
+                                _setStatusFilter(
+                                  status: status,
+                                  setModalState: setModalState,
+                                );
                               },
                               child: AnimatedContainer(
                                 duration: const Duration(milliseconds: 180),
@@ -266,9 +319,19 @@ class _BatchListPageState extends State<BatchListPage> {
                                   vertical: 10,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? const Color(0xFF038E1B)
-                                      : Colors.white,
+                                  gradient: isSelected
+                                      ? const LinearGradient(
+                                          colors: [
+                                            Color(0xFF015816),
+                                            Color(0xFF038E1B),
+                                            Color(0xFF84E977),
+                                          ],
+                                          stops: [0.0, 0.55, 1.0],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        )
+                                      : null,
+                                  color: isSelected ? null : Colors.white,
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
                                     color: isSelected
@@ -391,7 +454,7 @@ class _BatchListPageState extends State<BatchListPage> {
                         ),
                         onPressed: () => Navigator.pop(context),
                         child: const Text(
-                          'Terapkan Filter',
+                          'Tutup Filter',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -501,7 +564,7 @@ class _BatchListPageState extends State<BatchListPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Ringkasan Batch',
+          'Ringkasan Tampilan Batch',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
@@ -510,7 +573,7 @@ class _BatchListPageState extends State<BatchListPage> {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Ringkasan mengikuti filter status dan tanggal masuk yang dipilih.',
+          'Ringkasan dihitung dari data yang sedang dimuat pada halaman ini.',
           style: TextStyle(
             color: Colors.black54,
             fontSize: 11,
@@ -524,7 +587,7 @@ class _BatchListPageState extends State<BatchListPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _buildSummaryRow(
-                label: 'Total Batch',
+                label: 'Data Dimuat',
                 value: '${batches.length}',
               ),
               _buildSummaryRow(
@@ -592,8 +655,8 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  Widget _buildStatusChip(String status) {
-    final statusColor = _getStatusColor(status);
+  Widget _buildStatusChip(BatchModel batch) {
+    final statusColor = _getBatchStatusColor(batch);
 
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -608,7 +671,7 @@ class _BatchListPageState extends State<BatchListPage> {
         ),
       ),
       child: Text(
-        _getStatusText(status),
+        _getBatchStatusText(batch),
         style: TextStyle(
           color: statusColor,
           fontSize: 10.5,
@@ -657,8 +720,8 @@ class _BatchListPageState extends State<BatchListPage> {
     final location = batch.storageLocation.trim().isEmpty
         ? '-'
         : batch.storageLocation.trim();
-    final statusColor = _getStatusColor(batch.status);
-    final statusIcon = _getStatusIcon(batch.status);
+    final statusColor = _getBatchStatusColor(batch);
+    final statusIcon = _getBatchStatusIcon(batch);
 
     return Container(
       width: double.infinity,
@@ -733,7 +796,7 @@ class _BatchListPageState extends State<BatchListPage> {
                     const SizedBox(width: 8),
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
-                      child: _buildStatusChip(batch.status),
+                      child: _buildStatusChip(batch),
                     ),
                     const SizedBox(width: 4),
                     const Padding(
@@ -776,18 +839,6 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  Widget _buildEmptyState() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Text(
-          'Belum ada data batch.',
-          textAlign: TextAlign.center,
-        ),
-      ),
-    );
-  }
-
   Widget _buildEmptyFilterState() {
     return Container(
       width: double.infinity,
@@ -818,6 +869,57 @@ class _BatchListPageState extends State<BatchListPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreButton() {
+    if (!_hasMore) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 4, bottom: 8),
+        child: Center(
+          child: Text(
+            'Semua batch yang sesuai filter sudah dimuat.',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.black45,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: SizedBox(
+        width: double.infinity,
+        height: 42,
+        child: OutlinedButton.icon(
+          onPressed: _isLoadingMore
+              ? null
+              : () {
+                  _loadBatches(reset: false);
+                },
+          icon: _isLoadingMore
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF038E1B),
+                  ),
+                )
+              : const Icon(Icons.expand_more),
+          label: Text(_isLoadingMore ? 'Memuat...' : 'Muat Lagi'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF038E1B),
+            side: const BorderSide(color: Color(0xFF038E1B)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -898,154 +1000,158 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
+  Widget _buildPageContent() {
+    if (_isLoading && _batches.isEmpty) {
+      return _buildLoadingState();
+    }
+
+    if (_error != null && _batches.isEmpty) {
+      return _buildErrorState(_error);
+    }
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        key: const PageStorageKey<String>('batch_list_scroll'),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        physics: const ClampingScrollPhysics(),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.black12, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 20,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSummaryCard(_batches),
+                  const SizedBox(height: 24),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Data Batch',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Data batch dimuat bertahap agar halaman lebih ringan.',
+                              style: TextStyle(
+                                color: Colors.black54,
+                                fontSize: 11,
+                                height: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      InkWell(
+                        onTap: _showFilterBottomSheet,
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFC8E6C9).withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.green.shade300,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.filter_alt_outlined,
+                                size: 16,
+                                color: Colors.green.shade800,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Filter',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _getFilterDescription(),
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_batches.isEmpty)
+                    _buildEmptyFilterState()
+                  else ...[
+                    ..._batches.map(
+                      (batch) => _buildBatchCard(
+                        context: context,
+                        batch: batch,
+                      ),
+                    ),
+                    _buildLoadMoreButton(),
+                  ],
+                  if (_error != null && _batches.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Sebagian data gagal dimuat: $_error',
+                        style: TextStyle(
+                          color: Colors.red.shade600,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFA),
       appBar: _buildAppBar(),
-      body: StreamBuilder<List<BatchModel>>(
-        stream: _batchRepository.getBatchesStream(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return _buildLoadingState();
-          }
-
-          if (snapshot.hasError) {
-            return _buildErrorState(snapshot.error);
-          }
-
-          final allBatches = snapshot.data ?? [];
-
-          if (allBatches.isEmpty) {
-            return _buildEmptyState();
-          }
-
-          final displayedBatches = _filterBatches(allBatches);
-
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              physics: const ClampingScrollPhysics(),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 620),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.black12, width: 1),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 20,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildSummaryCard(displayedBatches),
-                        const SizedBox(height: 24),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Data Batch',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    'Data batch mengikuti filter yang dipilih.',
-                                    style: TextStyle(
-                                      color: Colors.black54,
-                                      fontSize: 11,
-                                      height: 1.2,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            InkWell(
-                              onTap: _showFilterBottomSheet,
-                              borderRadius: BorderRadius.circular(20),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color:
-                                      const Color(0xFFC8E6C9).withOpacity(0.5),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                    color: Colors.green.shade300,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.filter_alt_outlined,
-                                      size: 16,
-                                      color: Colors.green.shade800,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Filter',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.green.shade900,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _getFilterDescription(),
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (displayedBatches.isEmpty)
-                          _buildEmptyFilterState()
-                        else
-                          ...displayedBatches.map(
-                            (batch) => _buildBatchCard(
-                              context: context,
-                              batch: batch,
-                            ),
-                          ),
-                        const SizedBox(height: 12),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+      body: _buildPageContent(),
     );
   }
 }

@@ -22,18 +22,60 @@ class StockInPage extends StatefulWidget {
 
 class _StockInPageState extends State<StockInPage> {
   final _qtyController = TextEditingController();
-  final _locationController = TextEditingController();
   final _notesController = TextEditingController();
+  final _optionalLocationController = TextEditingController();
 
   final ProductRepository _productRepository = ProductRepository();
   final BatchRepository _batchRepository = BatchRepository();
   final TransactionRepository _transactionRepository = TransactionRepository();
 
+  final List<String> _storageLocations = const [
+    'A1',
+    'A2',
+    'A3',
+    'A4',
+    'A5',
+    'A6',
+    'A7',
+    'A8',
+    'A9',
+    'A10',
+    'B1',
+    'B2',
+    'B3',
+    'B4',
+    'B5',
+    'B6',
+    'B7',
+    'B8',
+    'B9',
+    'B10',
+    'C1',
+    'C2',
+    'C3',
+    'C4',
+    'C5',
+    'C6',
+    'C7',
+    'C8',
+    'C9',
+    'C10',
+    'D1',
+    'D2',
+    'D3',
+    'D4',
+    'D5',
+  ];
+
   List<ProductModel> _products = [];
   ProductModel? _selectedProduct;
+  String? _selectedLocation;
   DateTime _selectedDate = DateTime.now();
 
+  Set<String> _occupiedLocations = {};
+
   bool _isLoadingProducts = true;
+  bool _isLoadingLocations = true;
   bool _isSubmitting = false;
 
   bool _hasErrorProduct = false;
@@ -70,13 +112,14 @@ class _StockInPageState extends State<StockInPage> {
   void initState() {
     super.initState();
     _loadProducts();
+    _loadOccupiedLocations();
   }
 
   @override
   void dispose() {
     _qtyController.dispose();
-    _locationController.dispose();
     _notesController.dispose();
+    _optionalLocationController.dispose();
     super.dispose();
   }
 
@@ -104,8 +147,90 @@ class _StockInPageState extends State<StockInPage> {
     }
   }
 
+  Future<void> _loadOccupiedLocations({bool silent = false}) async {
+    try {
+      if (!silent && mounted) {
+        setState(() {
+          _isLoadingLocations = true;
+        });
+      }
+
+      final occupiedLocations =
+          await _batchRepository.getOccupiedStorageLocations();
+
+      if (!mounted) return;
+
+      setState(() {
+        _occupiedLocations = occupiedLocations;
+        _isLoadingLocations = false;
+
+        final selected = _selectedLocation?.trim().toUpperCase() ?? '';
+
+        if (_storageLocations.contains(selected) &&
+            _occupiedLocations.contains(selected)) {
+          _selectedLocation = null;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingLocations = false;
+      });
+
+      _showFloatingSnackBar(
+        'Gagal memuat status lokasi: $e',
+        Colors.redAccent,
+      );
+    }
+  }
+
   String _formatDate(DateTime date) {
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+
+  String _normalizeLocation(String value) {
+    return value.trim().toUpperCase();
+  }
+
+  bool _isLocationOccupied(String location) {
+    return _occupiedLocations.contains(_normalizeLocation(location));
+  }
+
+  bool get _isAllStandardLocationsOccupied {
+    return _storageLocations.every(_isLocationOccupied);
+  }
+
+  String _getSelectedLocationText() {
+    final location = _selectedLocation?.trim();
+
+    if (location != null && location.isNotEmpty) {
+      return location.toUpperCase();
+    }
+
+    if (_isLoadingLocations) {
+      return 'Memuat lokasi...';
+    }
+
+    if (_isAllStandardLocationsOccupied) {
+      return 'Semua lokasi penuh, isi lokasi opsional';
+    }
+
+    return 'Pilih Lokasi Tumpukan';
+  }
+
+  String _getFinalLocation() {
+    final selectedLocation = _selectedLocation?.trim() ?? '';
+
+    if (selectedLocation.isNotEmpty) {
+      return _normalizeLocation(selectedLocation);
+    }
+
+    if (_isAllStandardLocationsOccupied) {
+      return _normalizeLocation(_optionalLocationController.text);
+    }
+
+    return '';
   }
 
   void _showFloatingSnackBar(String message, Color color) {
@@ -177,23 +302,34 @@ class _StockInPageState extends State<StockInPage> {
 
   Future<void> _saveStockIn() async {
     final qtyText = _qtyController.text.trim();
-    final locationText = _locationController.text.trim();
     final notesText = _notesController.text.trim();
     final qty = int.tryParse(qtyText);
+    final finalLocation = _getFinalLocation();
 
     setState(() {
       _hasErrorProduct = _selectedProduct == null;
       _hasErrorQty = qtyText.isEmpty || qty == null || qty <= 0;
-      _hasErrorLocation = locationText.isEmpty;
+      _hasErrorLocation = finalLocation.isEmpty;
     });
 
     if (_hasErrorProduct || _hasErrorQty || _hasErrorLocation) {
-      if (_hasErrorQty && qtyText.isNotEmpty) {
+      if (_hasErrorProduct) {
+        _showFloatingSnackBar(
+          'Produk wajib dipilih.',
+          Colors.redAccent,
+        );
+      } else if (_hasErrorQty && qtyText.isNotEmpty) {
         _showFloatingSnackBar(
           'Jumlah stok harus berupa angka lebih dari 0.',
           Colors.redAccent,
         );
+      } else if (_hasErrorLocation) {
+        _showFloatingSnackBar(
+          'Lokasi tumpukan wajib dipilih atau diisi.',
+          Colors.redAccent,
+        );
       }
+
       return;
     }
 
@@ -204,13 +340,26 @@ class _StockInPageState extends State<StockInPage> {
     });
 
     try {
+      final latestOccupiedLocations =
+          await _batchRepository.getOccupiedStorageLocations();
+
+      final isStandardLocation = _storageLocations.contains(finalLocation);
+
+      if (isStandardLocation &&
+          latestOccupiedLocations.contains(finalLocation)) {
+        throw Exception(
+          'Lokasi $finalLocation sudah terisi batch aktif. Pilih lokasi lain.',
+        );
+      }
+
       final batchResult = await _batchRepository.createBatch(
         productId: selectedProduct.id,
+        productCode: selectedProduct.code,
         productName: selectedProduct.name,
         receivedAt: _selectedDate,
         qty: qty!,
         unit: selectedProduct.unit,
-        storageLocation: locationText,
+        storageLocation: finalLocation,
         createdBy: widget.user.uid,
         createdByName: widget.user.name,
         notes: notesText,
@@ -239,20 +388,25 @@ class _StockInPageState extends State<StockInPage> {
 
       if (!mounted) return;
 
+      final generatedBatchCode = batchResult['batchCode'] ?? 'batch baru';
+
       _qtyController.clear();
-      _locationController.clear();
       _notesController.clear();
+      _optionalLocationController.clear();
 
       setState(() {
         _selectedProduct = null;
+        _selectedLocation = null;
         _selectedDate = DateTime.now();
         _hasErrorProduct = false;
         _hasErrorQty = false;
         _hasErrorLocation = false;
       });
 
+      await _loadOccupiedLocations(silent: true);
+
       _showFloatingSnackBar(
-        'Stok berhasil ditambahkan!',
+        'Stok berhasil ditambahkan. Kode: $generatedBatchCode',
         const Color(0xFF038E1B),
       );
     } catch (e) {
@@ -357,6 +511,387 @@ class _StockInPageState extends State<StockInPage> {
     );
   }
 
+  Widget _buildLocationBox({
+    required String location,
+    required bool isSelected,
+    required bool isOccupied,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: isOccupied ? null : onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: 52,
+        height: 42,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          gradient: isSelected
+              ? const LinearGradient(
+                  colors: [
+                    Color(0xFF84E977),
+                    Color(0xFF038E1B),
+                    Color(0xFF015816),
+                  ],
+                  stops: [0.0, 0.5, 1.0],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: isSelected
+              ? null
+              : isOccupied
+                  ? Colors.grey.shade200
+                  : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFF038E1B)
+                : isOccupied
+                    ? Colors.grey.shade300
+                    : const Color(0xFFDADADA),
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.12),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [],
+        ),
+        child: Text(
+          location,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: isSelected
+                ? Colors.white
+                : isOccupied
+                    ? Colors.black38
+                    : const Color(0xFF015816),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLocationPickerBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final allLocationsFull = _isAllStandardLocationsOccupied;
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: Container(
+                  width: double.infinity,
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.88,
+                  ),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFAFAFA),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 46,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: Colors.black26,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Pilih Lokasi Tumpukan',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.refresh),
+                              tooltip: 'Muat ulang lokasi',
+                              onPressed: () async {
+                                await _loadOccupiedLocations(silent: true);
+                                if (mounted) {
+                                  setModalState(() {});
+                                }
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Kotak abu-abu berarti lokasi sedang dipakai oleh batch aktif. Lokasi akan tersedia kembali ketika batch habis.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.black54,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _storageLocations.map((location) {
+                            final normalizedLocation =
+                                _normalizeLocation(location);
+                            final isSelected =
+                                _normalizeLocation(_selectedLocation ?? '') ==
+                                    normalizedLocation;
+                            final isOccupied =
+                                _isLocationOccupied(normalizedLocation);
+
+                            return _buildLocationBox(
+                              location: location,
+                              isSelected: isSelected,
+                              isOccupied: isOccupied,
+                              onTap: () {
+                                setState(() {
+                                  _selectedLocation = normalizedLocation;
+                                  _optionalLocationController.clear();
+                                  _hasErrorLocation = false;
+                                });
+
+                                setModalState(() {});
+                                Navigator.pop(context);
+                              },
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            _buildMiniLegend(
+                              color: const Color(0xFF038E1B),
+                              text: 'Dipilih',
+                            ),
+                            const SizedBox(width: 12),
+                            _buildMiniLegend(
+                              color: Colors.white,
+                              borderColor: const Color(0xFFDADADA),
+                              text: 'Kosong',
+                            ),
+                            const SizedBox(width: 12),
+                            _buildMiniLegend(
+                              color: Colors.grey.shade200,
+                              borderColor: Colors.grey.shade300,
+                              text: 'Terisi',
+                            ),
+                          ],
+                        ),
+                        if (allLocationsFull) ...[
+                          const SizedBox(height: 20),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Colors.orange.shade200,
+                              ),
+                            ),
+                            child: const Text(
+                              'Semua lokasi standar A1-D5 sedang penuh. Isi lokasi opsional sementara di bawah ini.',
+                              style: TextStyle(
+                                color: Colors.black87,
+                                fontSize: 12,
+                                height: 1.35,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _optionalLocationController,
+                            textCapitalization: TextCapitalization.characters,
+                            style: fieldTextStyle,
+                            decoration: InputDecoration(
+                              labelText: 'Lokasi Opsional',
+                              hintText: 'Contoh: E1 atau Area Sementara 1',
+                              labelStyle: const TextStyle(
+                                color: Color(0xFF015816),
+                                fontWeight: FontWeight.bold,
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFDADADA),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF038E1B),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 42,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF038E1B),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              onPressed: () {
+                                final optionalLocation = _normalizeLocation(
+                                  _optionalLocationController.text,
+                                );
+
+                                if (optionalLocation.isEmpty) {
+                                  _showFloatingSnackBar(
+                                    'Lokasi opsional wajib diisi.',
+                                    Colors.redAccent,
+                                  );
+                                  return;
+                                }
+
+                                setState(() {
+                                  _selectedLocation = optionalLocation;
+                                  _hasErrorLocation = false;
+                                });
+
+                                setModalState(() {});
+                                Navigator.pop(context);
+                              },
+                              child: const Text(
+                                'Gunakan Lokasi Opsional',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMiniLegend({
+    required Color color,
+    required String text,
+    Color? borderColor,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 13,
+          height: 13,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: borderColor ?? color,
+            ),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          text,
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: Colors.black54,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationSelector() {
+    return _buildSvgWrapper(
+      svgPath: 'assets/stockin/recm.svg',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isLoadingLocations ? null : _showLocationPickerBottomSheet,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _getSelectedLocationText(),
+                  textAlign: TextAlign.left,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: fieldTextStyle.copyWith(
+                    color: _hasErrorLocation
+                        ? Colors.red
+                        : const Color(0xFF015816),
+                  ),
+                ),
+              ),
+              if (_hasErrorLocation)
+                const Padding(
+                  padding: EdgeInsets.only(right: 10),
+                  child: Text(
+                    'Wajib isi *',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              Icon(
+                Icons.grid_view_rounded,
+                color: _hasErrorLocation ? Colors.red : const Color(0xFF015816),
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoadingProducts) {
@@ -452,7 +987,7 @@ class _StockInPageState extends State<StockInPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Lengkapi data produk, jumlah stok, lokasi penyimpanan,\ndan tanggal masuk.',
+                      'Lengkapi data produk, jumlah stok, lokasi tumpukan,\ndan tanggal masuk.',
                       style: TextStyle(
                         fontSize: 12.5,
                         color: Colors.black.withOpacity(0.6),
@@ -497,7 +1032,7 @@ class _StockInPageState extends State<StockInPage> {
                             }).toList();
                           },
                           items: _products.map((p) {
-                            return DropdownMenuItem(
+                            return DropdownMenuItem<ProductModel>(
                               value: p,
                               child: Text(
                                 p.name,
@@ -539,23 +1074,7 @@ class _StockInPageState extends State<StockInPage> {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    _buildSvgWrapper(
-                      svgPath: 'assets/stockin/recm.svg',
-                      child: TextField(
-                        controller: _locationController,
-                        textAlign: TextAlign.left,
-                        style: fieldTextStyle,
-                        decoration: _customFieldDecoration(
-                          'Lokasi Batch di Gudang',
-                          hasError: _hasErrorLocation,
-                        ),
-                        onChanged: (val) {
-                          setState(() {
-                            _hasErrorLocation = false;
-                          });
-                        },
-                      ),
-                    ),
+                    _buildLocationSelector(),
                     const SizedBox(height: 14),
                     InkWell(
                       onTap: () => _selectDate(context),

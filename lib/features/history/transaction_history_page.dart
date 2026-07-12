@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -28,6 +29,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   final ProductRepository _productRepository = ProductRepository();
 
   static const String _allProductsValue = 'all';
+  static const int _pageLimit = 50;
 
   final ValueNotifier<String> _selectedProductIdNotifier =
       ValueNotifier<String>(_allProductsValue);
@@ -37,7 +39,17 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
       ValueNotifier<_TransactionTypeFilter>(_TransactionTypeFilter.all);
 
   List<ProductModel> _products = [];
+  List<TransactionModel> _transactions = [];
+
   bool _isLoadingProducts = true;
+  bool _isLoadingTransactions = true;
+  bool _isLoadingMore = false;
+  bool _hasMoreTransactions = true;
+  bool _isGeneratingPdf = false;
+
+  Object? _transactionError;
+  DocumentSnapshot<Map<String, dynamic>>? _lastTransactionDocument;
+  int _queryVersion = 0;
 
   final BoxShadow _softShadow = BoxShadow(
     color: Colors.black.withOpacity(0.07),
@@ -48,14 +60,25 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   @override
   void initState() {
     super.initState();
+
+    _selectedProductIdNotifier.addListener(_refreshTransactions);
+    _selectedDateRangeNotifier.addListener(_refreshTransactions);
+    _selectedTypeFilterNotifier.addListener(_refreshTransactions);
+
     _loadProducts();
+    _loadTransactions(reset: true);
   }
 
   @override
   void dispose() {
+    _selectedProductIdNotifier.removeListener(_refreshTransactions);
+    _selectedDateRangeNotifier.removeListener(_refreshTransactions);
+    _selectedTypeFilterNotifier.removeListener(_refreshTransactions);
+
     _selectedProductIdNotifier.dispose();
     _selectedDateRangeNotifier.dispose();
     _selectedTypeFilterNotifier.dispose();
+
     super.dispose();
   }
 
@@ -82,6 +105,119 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
           backgroundColor: Colors.red,
         ),
       );
+    }
+  }
+
+  void _refreshTransactions() {
+    _loadTransactions(reset: true);
+  }
+
+  DateTime? _getFilterStartDate() {
+    final range = _selectedDateRangeNotifier.value;
+
+    if (range == null) return null;
+
+    return DateTime(
+      range.start.year,
+      range.start.month,
+      range.start.day,
+    );
+  }
+
+  DateTime? _getFilterEndDate() {
+    final range = _selectedDateRangeNotifier.value;
+
+    if (range == null) return null;
+
+    return DateTime(
+      range.end.year,
+      range.end.month,
+      range.end.day,
+      23,
+      59,
+      59,
+    );
+  }
+
+  String? _getFilterProductId() {
+    final selectedProductId = _selectedProductIdNotifier.value;
+
+    if (selectedProductId == _allProductsValue) {
+      return null;
+    }
+
+    return selectedProductId;
+  }
+
+  String? _getFilterType() {
+    final selectedType = _selectedTypeFilterNotifier.value;
+
+    switch (selectedType) {
+      case _TransactionTypeFilter.all:
+        return null;
+      case _TransactionTypeFilter.stockIn:
+        return 'stock_in';
+      case _TransactionTypeFilter.stockOut:
+        return 'stock_out';
+    }
+  }
+
+  Future<void> _loadTransactions({required bool reset}) async {
+    final currentVersion = ++_queryVersion;
+
+    if (reset) {
+      setState(() {
+        _transactions = [];
+        _lastTransactionDocument = null;
+        _hasMoreTransactions = true;
+        _isLoadingTransactions = true;
+        _isLoadingMore = false;
+        _transactionError = null;
+      });
+    } else {
+      if (_isLoadingMore || !_hasMoreTransactions) return;
+
+      setState(() {
+        _isLoadingMore = true;
+        _transactionError = null;
+      });
+    }
+
+    try {
+      final result = await _transactionRepository.getTransactionsPage(
+        productId: _getFilterProductId(),
+        type: _getFilterType(),
+        startDate: _getFilterStartDate(),
+        endDate: _getFilterEndDate(),
+        limit: _pageLimit,
+        startAfterDocument: reset ? null : _lastTransactionDocument,
+      );
+
+      if (!mounted || currentVersion != _queryVersion) return;
+
+      setState(() {
+        if (reset) {
+          _transactions = result.transactions;
+        } else {
+          _transactions = [
+            ..._transactions,
+            ...result.transactions,
+          ];
+        }
+
+        _lastTransactionDocument = result.lastDocument;
+        _hasMoreTransactions = result.hasMore;
+        _isLoadingTransactions = false;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted || currentVersion != _queryVersion) return;
+
+      setState(() {
+        _transactionError = e;
+        _isLoadingTransactions = false;
+        _isLoadingMore = false;
+      });
     }
   }
 
@@ -197,59 +333,6 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
       case _TransactionTypeFilter.stockOut:
         return 'Stok Keluar';
     }
-  }
-
-  List<TransactionModel> _filterTransactions({
-    required List<TransactionModel> transactions,
-    required String selectedProductId,
-    required DateTimeRange? selectedDateRange,
-    required _TransactionTypeFilter selectedTypeFilter,
-  }) {
-    final filteredTransactions = transactions.where((transaction) {
-      final transactionDate = transaction.createdAt.toDate();
-
-      final matchProduct = selectedProductId == _allProductsValue ||
-          transaction.productId == selectedProductId;
-
-      bool matchDate = true;
-
-      if (selectedDateRange != null) {
-        final start = DateTime(
-          selectedDateRange.start.year,
-          selectedDateRange.start.month,
-          selectedDateRange.start.day,
-        );
-
-        final end = DateTime(
-          selectedDateRange.end.year,
-          selectedDateRange.end.month,
-          selectedDateRange.end.day,
-          23,
-          59,
-          59,
-        );
-
-        matchDate = transactionDate
-                .isAfter(start.subtract(const Duration(seconds: 1))) &&
-            transactionDate.isBefore(end.add(const Duration(seconds: 1)));
-      }
-
-      bool matchType = true;
-
-      if (selectedTypeFilter == _TransactionTypeFilter.stockIn) {
-        matchType = _isStockIn(transaction);
-      } else if (selectedTypeFilter == _TransactionTypeFilter.stockOut) {
-        matchType = _isStockOut(transaction);
-      }
-
-      return matchProduct && matchDate && matchType;
-    }).toList();
-
-    filteredTransactions.sort(
-      (a, b) => b.createdAt.toDate().compareTo(a.createdAt.toDate()),
-    );
-
-    return filteredTransactions;
   }
 
   Future<void> _pickDateRange() async {
@@ -390,11 +473,6 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                   pw.Text('Total stok masuk: $totalStockIn karung'),
                   pw.Text('Total stok keluar: $totalStockOut karung'),
                   pw.Text('Selisih stok periode ini: $netStock karung'),
-                  pw.SizedBox(height: 6),
-                  pw.Text(
-                    'Catatan: ringkasan ini mengikuti filter produk, jenis transaksi, dan periode yang dipilih.',
-                    style: const pw.TextStyle(fontSize: 10),
-                  ),
                 ],
               ),
             ),
@@ -456,59 +534,8 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                 5: const pw.FixedColumnWidth(55),
                 6: const pw.FixedColumnWidth(70),
               },
-              cellAlignments: {
-                0: pw.Alignment.center,
-                1: pw.Alignment.centerLeft,
-                2: pw.Alignment.centerLeft,
-                3: pw.Alignment.centerLeft,
-                4: pw.Alignment.centerLeft,
-                5: pw.Alignment.centerLeft,
-                6: pw.Alignment.centerLeft,
-              },
             ),
-            if (transactions
-                .any((transaction) => transaction.notes.trim().isNotEmpty)) ...[
-              pw.SizedBox(height: 14),
-              pw.Text(
-                'Catatan Transaksi:',
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 6),
-              ...transactions.asMap().entries.where((entry) {
-                return entry.value.notes.trim().isNotEmpty;
-              }).map((entry) {
-                final index = entry.key;
-                final transaction = entry.value;
-
-                return pw.Padding(
-                  padding: const pw.EdgeInsets.only(bottom: 3),
-                  child: pw.Text(
-                    '${index + 1}. ${transaction.batchCode} - ${transaction.notes}',
-                    style: const pw.TextStyle(fontSize: 8),
-                  ),
-                );
-              }),
-            ],
             pw.SizedBox(height: 16),
-            pw.Text(
-              'Keterangan:',
-              style: pw.TextStyle(
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              'Stok Masuk menunjukkan transaksi penambahan stok ke dalam sistem.',
-            ),
-            pw.Text(
-              'Stok Keluar menunjukkan transaksi pengurangan stok berdasarkan batch.',
-            ),
-            pw.Text(
-              'Selisih stok periode ini dihitung dari total stok masuk dikurangi total stok keluar.',
-            ),
-            pw.SizedBox(height: 20),
             pw.Text(
               'Laporan ini dihasilkan secara otomatis oleh Aplikasi Manajemen Stok Toko Beras Abunawas.',
               style: const pw.TextStyle(fontSize: 10),
@@ -521,27 +548,58 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     return pdf.save();
   }
 
-  Future<void> _generateTransactionPdf({
-    required BuildContext context,
-    required List<TransactionModel> transactions,
-  }) async {
-    if (transactions.isEmpty) {
+  Future<void> _generateTransactionPdf() async {
+    if (_isGeneratingPdf) return;
+
+    setState(() {
+      _isGeneratingPdf = true;
+    });
+
+    try {
+      final reportTransactions =
+          await _transactionRepository.getTransactionsForReport(
+        productId: _getFilterProductId(),
+        type: _getFilterType(),
+        startDate: _getFilterStartDate(),
+        endDate: _getFilterEndDate(),
+      );
+
+      if (!mounted) return;
+
+      if (reportTransactions.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Tidak ada transaksi yang sesuai dengan filter laporan.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      await Printing.layoutPdf(
+        name: 'laporan_transaksi_stok_abunawas.pdf',
+        onLayout: (format) async {
+          return _buildTransactionReportPdf(reportTransactions);
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Tidak ada transaksi yang sesuai dengan filter laporan.'),
+        SnackBar(
+          content: Text('Gagal membuat PDF: $e'),
           backgroundColor: Colors.red,
         ),
       );
-      return;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingPdf = false;
+        });
+      }
     }
-
-    await Printing.layoutPdf(
-      name: 'laporan_transaksi_stok_abunawas.pdf',
-      onLayout: (format) async {
-        return _buildTransactionReportPdf(transactions);
-      },
-    );
   }
 
   Widget _buildCleanCard({
@@ -679,6 +737,65 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
+  Widget _buildActionButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      height: 42,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFF015816),
+            Color(0xFF038E1B),
+            Color(0xFF84E977),
+          ],
+          stops: [0.0, 0.55, 1.0],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.11),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 16, color: Colors.white),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFilterSection({
     required String selectedProductId,
     required DateTimeRange? selectedDateRange,
@@ -692,12 +809,10 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
       children: [
         _buildSectionTitle(
           title: 'Filter Transaksi',
-          subtitle:
-              'Gunakan filter untuk melihat transaksi berdasarkan produk, jenis transaksi, dan periode tertentu.',
+          subtitle: 'Data transaksi dimuat bertahap agar halaman tetap ringan.',
         ),
         _buildCleanCard(
           padding: const EdgeInsets.all(16),
-          margin: const EdgeInsets.only(bottom: 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -827,65 +942,6 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildActionButton({
-    required String label,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      height: 42,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF015816),
-            Color(0xFF038E1B),
-            Color(0xFF84E977),
-          ],
-          stops: [0.0, 0.55, 1.0],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.11),
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 16, color: Colors.white),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildSummary(List<TransactionModel> transactions) {
     final totalStockIn = _calculateTotalStockIn(transactions);
     final totalStockOut = _calculateTotalStockOut(transactions);
@@ -895,9 +951,9 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionTitle(
-          title: 'Ringkasan Transaksi',
+          title: 'Ringkasan Tampilan',
           subtitle:
-              'Ringkasan ini mengikuti filter produk, jenis transaksi, dan periode yang dipilih.',
+              'Ringkasan ini dihitung dari data yang sedang dimuat di layar. PDF tetap mengambil seluruh data sesuai filter.',
         ),
         _buildCleanCard(
           padding: const EdgeInsets.all(16),
@@ -905,7 +961,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildSummaryRow(
-                label: 'Jumlah Transaksi',
+                label: 'Data Dimuat',
                 value: '${transactions.length}',
               ),
               _buildSummaryRow(
@@ -917,24 +973,12 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                 value: '$totalStockOut Karung',
               ),
               _buildSummaryRow(
-                label: 'Selisih Periode',
+                label: 'Selisih Data Dimuat',
                 value: '$netStock Karung',
                 isLast: true,
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Catatan: ringkasan ini mengikuti filter produk, jenis transaksi, dan periode yang dipilih.',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 9.5,
-                  height: 1.3,
-                ),
-              ),
               const SizedBox(height: 16),
-              Opacity(
-                opacity: transactions.isEmpty ? 0.6 : 1.0,
-                child: _buildPdfButton(transactions),
-              ),
+              _buildPdfButton(),
             ],
           ),
         ),
@@ -942,64 +986,80 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildPdfButton(List<TransactionModel> transactions) {
-    return Container(
-      width: double.infinity,
-      height: 44,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF015816),
-            Color(0xFF038E1B),
-            Color(0xFF84E977),
-          ],
-          stops: [0.0, 0.55, 1.0],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.11),
-            blurRadius: 6,
-            offset: const Offset(0, 3),
+  Widget _buildPdfButton() {
+    return Opacity(
+      opacity: _isGeneratingPdf ? 0.7 : 1,
+      child: Container(
+        width: double.infinity,
+        height: 44,
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [
+              Color(0xFF015816),
+              Color(0xFF038E1B),
+              Color(0xFF84E977),
+            ],
+            stops: [0.0, 0.55, 1.0],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: transactions.isEmpty
-              ? null
-              : () {
-                  _generateTransactionPdf(
-                    context: context,
-                    transactions: transactions,
-                  );
-                },
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.picture_as_pdf_rounded,
-                size: 18,
-                color: Colors.white,
-              ),
-              SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  'Generate PDF Laporan Transaksi',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.11),
+              blurRadius: 6,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _isGeneratingPdf ? null : _generateTransactionPdf,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_isGeneratingPdf) ...[
+                  const SizedBox(
+                    width: 17,
+                    height: 17,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Membuat PDF...',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: Colors.white,
+                    ),
+                  ),
+                ] else ...[
+                  const Icon(
+                    Icons.picture_as_pdf_rounded,
+                    size: 18,
                     color: Colors.white,
                   ),
-                ),
-              ),
-            ],
+                  const SizedBox(width: 8),
+                  const Flexible(
+                    child: Text(
+                      'Generate PDF Sesuai Filter',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1235,37 +1295,73 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildEmptyTransactionResult() {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.receipt_long,
-            color: Colors.grey,
-            size: 24,
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Belum ada riwayat transaksi.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.black87,
-                height: 1.3,
-              ),
+  Widget _buildLoadMoreButton() {
+    if (!_hasMoreTransactions) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 4, bottom: 8),
+        child: Center(
+          child: Text(
+            'Semua data yang sesuai filter sudah dimuat.',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.black45,
+              fontWeight: FontWeight.w500,
             ),
           ),
-        ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: SizedBox(
+        width: double.infinity,
+        height: 42,
+        child: OutlinedButton.icon(
+          onPressed: _isLoadingMore
+              ? null
+              : () {
+                  _loadTransactions(reset: false);
+                },
+          icon: _isLoadingMore
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF038E1B),
+                  ),
+                )
+              : const Icon(Icons.expand_more),
+          label: Text(_isLoadingMore ? 'Memuat...' : 'Muat Lagi'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF038E1B),
+            side: const BorderSide(color: Color(0xFF038E1B)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildTransactionList(List<TransactionModel> transactions) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle(
+          title: 'Daftar Transaksi',
+          subtitle:
+              'Data ditampilkan bertahap maksimal $_pageLimit transaksi setiap kali muat.',
+        ),
+        if (transactions.isEmpty)
+          _buildEmptyFilteredResult()
+        else ...[
+          ...transactions.map(_buildTransactionCard),
+          _buildLoadMoreButton(),
+        ],
+      ],
     );
   }
 
@@ -1296,28 +1392,6 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildTransactionList({
-    required List<TransactionModel> allTransactions,
-    required List<TransactionModel> filteredTransactions,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Daftar Transaksi',
-          subtitle:
-              'Transaksi yang tampil mengikuti filter produk, jenis transaksi, dan periode yang dipilih.',
-        ),
-        if (allTransactions.isEmpty)
-          _buildEmptyTransactionResult()
-        else if (filteredTransactions.isEmpty)
-          _buildEmptyFilteredResult()
-        else
-          ...filteredTransactions.map(_buildTransactionCard),
-      ],
     );
   }
 
@@ -1368,17 +1442,17 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
   }
 
   Widget _buildPageContent({
-    required List<TransactionModel> allTransactions,
     required String selectedProductId,
     required DateTimeRange? selectedDateRange,
     required _TransactionTypeFilter selectedTypeFilter,
   }) {
-    final filteredTransactions = _filterTransactions(
-      transactions: allTransactions,
-      selectedProductId: selectedProductId,
-      selectedDateRange: selectedDateRange,
-      selectedTypeFilter: selectedTypeFilter,
-    );
+    if (_isLoadingTransactions && _transactions.isEmpty) {
+      return _buildLoadingState();
+    }
+
+    if (_transactionError != null && _transactions.isEmpty) {
+      return _buildErrorState(_transactionError);
+    }
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -1414,12 +1488,20 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
                     selectedTypeFilter: selectedTypeFilter,
                   ),
                   const SizedBox(height: 24),
-                  _buildSummary(filteredTransactions),
+                  _buildSummary(_transactions),
                   const SizedBox(height: 24),
-                  _buildTransactionList(
-                    allTransactions: allTransactions,
-                    filteredTransactions: filteredTransactions,
-                  ),
+                  _buildTransactionList(_transactions),
+                  if (_transactionError != null && _transactions.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Sebagian data gagal dimuat: $_transactionError',
+                        style: TextStyle(
+                          color: Colors.red.shade600,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 12),
                 ],
               ),
@@ -1430,7 +1512,7 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
     );
   }
 
-  Widget _buildFilteredContent(List<TransactionModel> allTransactions) {
+  Widget _buildFilteredContent() {
     return ValueListenableBuilder<String>(
       valueListenable: _selectedProductIdNotifier,
       builder: (context, selectedProductId, _) {
@@ -1441,7 +1523,6 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
               valueListenable: _selectedTypeFilterNotifier,
               builder: (context, selectedTypeFilter, _) {
                 return _buildPageContent(
-                  allTransactions: allTransactions,
                   selectedProductId: selectedProductId,
                   selectedDateRange: selectedDateRange,
                   selectedTypeFilter: selectedTypeFilter,
@@ -1456,27 +1537,13 @@ class _TransactionHistoryPageState extends State<TransactionHistoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isInitialLoading =
+        _isLoadingProducts || (_isLoadingTransactions && _transactions.isEmpty);
+
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFA),
       appBar: _buildAppBar(),
-      body: StreamBuilder<List<TransactionModel>>(
-        stream: _transactionRepository.getTransactionsStream(),
-        builder: (context, snapshot) {
-          if ((snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) ||
-              _isLoadingProducts) {
-            return _buildLoadingState();
-          }
-
-          if (snapshot.hasError) {
-            return _buildErrorState(snapshot.error);
-          }
-
-          final allTransactions = snapshot.data ?? [];
-
-          return _buildFilteredContent(allTransactions);
-        },
-      ),
+      body: isInitialLoading ? _buildLoadingState() : _buildFilteredContent(),
     );
   }
 }

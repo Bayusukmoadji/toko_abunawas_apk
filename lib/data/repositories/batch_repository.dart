@@ -150,6 +150,23 @@ class BatchRepository {
     return value.trim().toUpperCase();
   }
 
+  DateTime _dateOnly(DateTime value) {
+    final localDate = value.toLocal();
+
+    return DateTime(
+      localDate.year,
+      localDate.month,
+      localDate.day,
+    );
+  }
+
+  bool _isFutureDate(DateTime value) {
+    final receivedDate = _dateOnly(value);
+    final today = _dateOnly(DateTime.now());
+
+    return receivedDate.isAfter(today);
+  }
+
   String _getLocationZone(String location) {
     return isBackupStorageLocation(location) ? 'backup' : 'main';
   }
@@ -176,6 +193,57 @@ class BatchRepository {
     return int.tryParse(parts.last.trim()) ?? 0;
   }
 
+  String _getBatchCodeForFifo(BatchModel batch) {
+    final batchCode = batch.batchCode.trim().toUpperCase();
+
+    if (batchCode.isNotEmpty) {
+      return batchCode;
+    }
+
+    return batch.id.trim().toUpperCase();
+  }
+
+  int _compareBatchesForFifo(
+    BatchModel first,
+    BatchModel second,
+  ) {
+    final receivedAtComparison = first.receivedAt.compareTo(second.receivedAt);
+
+    if (receivedAtComparison != 0) {
+      return receivedAtComparison;
+    }
+
+    final createdAtComparison = first.createdAt.compareTo(second.createdAt);
+
+    if (createdAtComparison != 0) {
+      return createdAtComparison;
+    }
+
+    final firstBatchCode = _getBatchCodeForFifo(first);
+
+    final secondBatchCode = _getBatchCodeForFifo(second);
+
+    final firstSequence = _extractSequenceFromBatchCode(firstBatchCode);
+
+    final secondSequence = _extractSequenceFromBatchCode(secondBatchCode);
+
+    if (firstSequence > 0 &&
+        secondSequence > 0 &&
+        firstSequence != secondSequence) {
+      return firstSequence.compareTo(secondSequence);
+    }
+
+    final batchCodeComparison = firstBatchCode.compareTo(secondBatchCode);
+
+    if (batchCodeComparison != 0) {
+      return batchCodeComparison;
+    }
+
+    return first.id.trim().toUpperCase().compareTo(
+          second.id.trim().toUpperCase(),
+        );
+  }
+
   int _parseInt(dynamic value) {
     if (value is num) {
       return value.toInt();
@@ -190,6 +258,14 @@ class BatchRepository {
     return normalizedStatus == 'empty' ||
         normalizedStatus == 'depleted' ||
         batch.remainingQty <= 0;
+  }
+
+  bool _isBatchEligibleForFifo(
+    BatchModel batch,
+  ) {
+    final normalizedStatus = batch.status.toLowerCase().trim();
+
+    return normalizedStatus == 'active' && batch.remainingQty > 0;
   }
 
   bool _isBatchDataActive(Map<String, dynamic> data) {
@@ -384,6 +460,7 @@ class BatchRepository {
       }
 
       final createdAtRaw = data['createdAt'];
+
       final occupiedAt =
           createdAtRaw is Timestamp ? createdAtRaw : Timestamp.now();
 
@@ -555,6 +632,14 @@ class BatchRepository {
 
     final cleanNotes = notes.trim();
 
+    final cleanReceivedAt = _dateOnly(receivedAt);
+
+    if (_isFutureDate(cleanReceivedAt)) {
+      throw Exception(
+        'Tanggal masuk tidak boleh melebihi tanggal hari ini.',
+      );
+    }
+
     if (cleanProductId.isEmpty) {
       throw Exception('Product ID tidak valid.');
     }
@@ -683,7 +768,7 @@ class BatchRepository {
         final nextNumber = lastNumber + 1;
 
         final batchCode = _buildBatchCode(
-          receivedAt: receivedAt,
+          receivedAt: cleanReceivedAt,
           productCode: storedProductCode,
           sequenceNumber: nextNumber,
         );
@@ -725,7 +810,7 @@ class BatchRepository {
             'productName': storedProductName,
             'productCode': storedProductCode,
             'batchCode': batchCode,
-            'receivedAt': Timestamp.fromDate(receivedAt),
+            'receivedAt': Timestamp.fromDate(cleanReceivedAt),
             'initialQty': qty,
             'remainingQty': qty,
             'unit': storedUnit,
@@ -1047,6 +1132,7 @@ class BatchRepository {
         23,
         59,
         59,
+        999,
       );
 
       query = query
@@ -1164,10 +1250,16 @@ class BatchRepository {
   Future<BatchModel?> getOldestActiveBatchByProductId(
     String productId,
   ) async {
+    final cleanProductId = productId.trim();
+
+    if (cleanProductId.isEmpty) {
+      return null;
+    }
+
     final snapshot = await _batchesCollection
         .where(
           'productId',
-          isEqualTo: productId,
+          isEqualTo: cleanProductId,
         )
         .get();
 
@@ -1178,20 +1270,14 @@ class BatchRepository {
             document.data(),
           ),
         )
-        .where(
-          (batch) => !_isBatchEmpty(batch),
-        )
+        .where(_isBatchEligibleForFifo)
         .toList();
 
     if (batches.isEmpty) {
       return null;
     }
 
-    batches.sort(
-      (first, second) => first.receivedAt.compareTo(
-        second.receivedAt,
-      ),
-    );
+    batches.sort(_compareBatchesForFifo);
 
     return batches.first;
   }

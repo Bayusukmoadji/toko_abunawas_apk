@@ -135,6 +135,23 @@ class _StockInPageState extends State<StockInPage> {
     return value.trim().toUpperCase();
   }
 
+  DateTime _dateOnly(DateTime value) {
+    final localDate = value.toLocal();
+
+    return DateTime(
+      localDate.year,
+      localDate.month,
+      localDate.day,
+    );
+  }
+
+  bool _isFutureDate(DateTime value) {
+    final selectedDate = _dateOnly(value);
+    final today = _dateOnly(DateTime.now());
+
+    return selectedDate.isAfter(today);
+  }
+
   bool _isLocationOccupied(String location) {
     return _occupiedLocations.contains(
       _normalizeLocation(location),
@@ -369,11 +386,19 @@ class _StockInPageState extends State<StockInPage> {
   Future<void> _selectDate(
     BuildContext context,
   ) async {
+    final today = _dateOnly(DateTime.now());
+
+    final safeInitialDate =
+        _isFutureDate(_selectedDate) ? today : _dateOnly(_selectedDate);
+
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2100),
+      initialDate: safeInitialDate,
+      firstDate: DateTime(2024, 1, 1),
+      lastDate: today,
+      helpText: 'Pilih Tanggal Stok Masuk',
+      cancelText: 'Batal',
+      confirmText: 'Pilih',
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -393,7 +418,19 @@ class _StockInPageState extends State<StockInPage> {
       },
     );
 
-    if (picked != null && picked != _selectedDate) {
+    if (picked == null) {
+      return;
+    }
+
+    if (_isFutureDate(picked)) {
+      _showFloatingSnackBar(
+        'Tanggal masuk tidak boleh melebihi tanggal hari ini.',
+        Colors.redAccent,
+      );
+      return;
+    }
+
+    if (_dateOnly(picked) != _dateOnly(_selectedDate)) {
       setState(() {
         _selectedDate = picked;
       });
@@ -405,6 +442,14 @@ class _StockInPageState extends State<StockInPage> {
     final notesText = _notesController.text.trim();
     final qty = int.tryParse(qtyText);
     final finalLocation = _normalizeLocation(_selectedLocation ?? '');
+
+    if (_isFutureDate(_selectedDate)) {
+      _showFloatingSnackBar(
+        'Tanggal masuk tidak boleh melebihi tanggal hari ini.',
+        Colors.redAccent,
+      );
+      return;
+    }
 
     setState(() {
       _hasErrorProduct = _selectedProduct == null;
@@ -495,7 +540,7 @@ class _StockInPageState extends State<StockInPage> {
         productId: selectedProduct.id,
         productCode: selectedProduct.code,
         productName: selectedProduct.name,
-        receivedAt: _selectedDate,
+        receivedAt: _dateOnly(_selectedDate),
         qty: qty!,
         unit: selectedProduct.unit,
         storageLocation: finalLocation,
@@ -775,7 +820,7 @@ class _StockInPageState extends State<StockInPage> {
       return;
     }
 
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,

@@ -252,14 +252,6 @@ class BatchRepository {
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
-  bool _isBatchEmpty(BatchModel batch) {
-    final normalizedStatus = batch.status.toLowerCase().trim();
-
-    return normalizedStatus == 'empty' ||
-        normalizedStatus == 'depleted' ||
-        batch.remainingQty <= 0;
-  }
-
   bool _isBatchEligibleForFifo(
     BatchModel batch,
   ) {

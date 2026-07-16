@@ -1,0 +1,1013 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    /*
+     * ============================================================
+     * AUTENTIKASI DAN HAK AKSES
+     * ============================================================
+     */
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasCurrentUserDocument() {
+      return isSignedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        );
+    }
+
+    function isValidRole(role) {
+      return role == 'owner'
+        || role == 'pemilik'
+        || role == 'karyawan';
+    }
+
+    function isOwnerRole(role) {
+      return role == 'owner'
+        || role == 'pemilik';
+    }
+
+    function isActiveUser() {
+      return hasCurrentUserDocument()
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.isActive == true
+        && isValidRole(
+          get(
+            /databases/$(database)/documents/users/$(request.auth.uid)
+          ).data.role
+        );
+    }
+
+    function isOwner() {
+      return isActiveUser()
+        && isOwnerRole(
+          get(
+            /databases/$(database)/documents/users/$(request.auth.uid)
+          ).data.role
+        );
+    }
+
+    /*
+     * ============================================================
+     * LOKASI PENYIMPANAN
+     * ============================================================
+     */
+
+    function isMainLocation(location) {
+      return location is string
+        && location.matches(
+          '^(A([1-9]|10)|B([1-9]|10)|C([1-9]|10)|D([1-5]))$'
+        );
+    }
+
+    function isBackupLocation(location) {
+      return location is string
+        && location.matches('^X([1-5])$');
+    }
+
+    function isValidStorageLocation(location) {
+      return isMainLocation(location)
+        || isBackupLocation(location);
+    }
+
+    function zoneForLocation(location) {
+      return isBackupLocation(location)
+        ? 'backup'
+        : 'main';
+    }
+
+    /*
+     * ============================================================
+     * USERS
+     * ============================================================
+     */
+
+    function isValidUserCreate(userId) {
+      return request.resource.data.keys().hasAll([
+          'uid',
+          'name',
+          'email',
+          'role',
+          'isActive',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'name',
+          'email',
+          'role',
+          'isActive',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0
+        && isValidRole(request.resource.data.role)
+        && request.resource.data.isActive is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function isValidUserUpdate(userId) {
+      let changedKeys = request.resource.data
+        .diff(resource.data)
+        .affectedKeys();
+
+      return changedKeys.hasOnly([
+          'name',
+          'email',
+          'role',
+          'isActive',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.uid == userId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0
+        && isValidRole(request.resource.data.role)
+        && request.resource.data.isActive is bool
+        && request.resource.data.updatedAt is timestamp
+
+        // Owner tidak boleh menonaktifkan atau menurunkan role sendiri.
+        && (
+          userId != request.auth.uid
+          || (
+            isOwnerRole(request.resource.data.role)
+            && request.resource.data.isActive == true
+          )
+        );
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn()
+        && (
+          request.auth.uid == userId
+          || isOwner()
+        );
+
+      allow list: if isOwner();
+
+      allow create: if isOwner()
+        && isValidUserCreate(userId);
+
+      allow update: if isOwner()
+        && isValidUserUpdate(userId);
+
+      allow delete: if isOwner()
+        && userId != request.auth.uid;
+    }
+
+    /*
+     * ============================================================
+     * PRODUCTS
+     * ============================================================
+     */
+
+    function isValidProductCore(productId) {
+      return request.resource.data.id == productId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.code is string
+        && request.resource.data.code.size() > 0
+        && request.resource.data.category is string
+        && request.resource.data.unit is string
+        && request.resource.data.minimumStock is int
+        && request.resource.data.minimumStock >= 0
+        && request.resource.data.minStock is int
+        && request.resource.data.minStock
+          == request.resource.data.minimumStock
+        && request.resource.data.totalStock is int
+        && request.resource.data.totalStock >= 0
+        && request.resource.data.isActive is bool
+        && request.resource.data.isDeleted is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && (
+          !('deletedAt' in request.resource.data)
+          || request.resource.data.deletedAt is timestamp
+        );
+    }
+
+    function isValidProductCreate(productId) {
+      return request.resource.data.keys().hasAll([
+          'id',
+          'name',
+          'code',
+          'category',
+          'unit',
+          'minimumStock',
+          'minStock',
+          'totalStock',
+          'isActive',
+          'isDeleted',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'name',
+          'code',
+          'category',
+          'unit',
+          'minimumStock',
+          'minStock',
+          'totalStock',
+          'isActive',
+          'isDeleted',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidProductCore(productId)
+        && request.resource.data.totalStock == 0
+        && request.resource.data.isDeleted == false;
+    }
+
+    function isOwnerProductManagementUpdate(productId) {
+      let changedKeys = request.resource.data
+        .diff(resource.data)
+        .affectedKeys();
+
+      return isOwner()
+        && changedKeys.hasOnly([
+          'name',
+          'code',
+          'category',
+          'unit',
+          'minimumStock',
+          'minStock',
+          'isActive',
+          'isDeleted',
+          'deletedAt',
+          'updatedAt'
+        ])
+        && isValidProductCore(productId)
+        && request.resource.data.totalStock
+          == resource.data.totalStock
+        && request.resource.data.createdAt
+          == resource.data.createdAt;
+    }
+
+    function isOperationalProductStockUpdate(productId) {
+      let changedKeys = request.resource.data
+        .diff(resource.data)
+        .affectedKeys();
+
+      return isActiveUser()
+        && changedKeys.hasOnly([
+          'totalStock',
+          'updatedAt'
+        ])
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.id == productId
+        && request.resource.data.totalStock is int
+        && request.resource.data.totalStock >= 0
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    match /products/{productId} {
+      allow read: if isActiveUser();
+
+      allow create: if isOwner()
+        && isValidProductCreate(productId);
+
+      allow update: if isOwnerProductManagementUpdate(productId)
+        || isOperationalProductStockUpdate(productId);
+
+      allow delete: if isOwner()
+        && resource.data.totalStock == 0;
+    }
+
+    /*
+     * ============================================================
+     * BATCHES
+     * ============================================================
+     */
+
+    function isValidBatchCreate(batchId) {
+      let productBefore = get(
+        /databases/$(database)/documents/products/$(request.resource.data.productId)
+      ).data;
+
+      let productAfter = getAfter(
+        /databases/$(database)/documents/products/$(request.resource.data.productId)
+      ).data;
+
+      let locationAfter = getAfter(
+        /databases/$(database)/documents/storage_locations/$(request.resource.data.storageLocation)
+      ).data;
+
+      return request.resource.data.keys().hasAll([
+          'id',
+          'productId',
+          'productName',
+          'productCode',
+          'batchCode',
+          'receivedAt',
+          'initialQty',
+          'remainingQty',
+          'unit',
+          'qrCodeValue',
+          'status',
+          'storageLocation',
+          'createdBy',
+          'createdByName',
+          'notes',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'productId',
+          'productName',
+          'productCode',
+          'batchCode',
+          'receivedAt',
+          'initialQty',
+          'remainingQty',
+          'unit',
+          'qrCodeValue',
+          'status',
+          'storageLocation',
+          'createdBy',
+          'createdByName',
+          'notes',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.id == batchId
+        && request.resource.data.batchCode == batchId
+        && request.resource.data.qrCodeValue == batchId
+        && request.resource.data.productId is string
+        && request.resource.data.productId.size() > 0
+        && request.resource.data.productName is string
+        && request.resource.data.productCode is string
+        && request.resource.data.unit is string
+        && request.resource.data.initialQty is int
+        && request.resource.data.initialQty > 0
+        && request.resource.data.remainingQty
+          == request.resource.data.initialQty
+        && request.resource.data.status == 'active'
+        && isValidStorageLocation(
+          request.resource.data.storageLocation
+        )
+        && request.resource.data.createdBy
+          == request.auth.uid
+        && request.resource.data.createdByName is string
+        && request.resource.data.notes is string
+        && request.resource.data.receivedAt is timestamp
+        && request.resource.data.receivedAt <= request.time
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+
+        // Produk harus aktif dan bukan produk yang diarsipkan.
+        && productBefore.isActive == true
+        && (
+          !('isDeleted' in productBefore)
+          || productBefore.isDeleted != true
+        )
+
+        // Nama, kode, dan satuan batch harus mengikuti produk.
+        && request.resource.data.productName
+          == productBefore.name
+        && request.resource.data.productCode
+          == productBefore.code
+        && request.resource.data.unit
+          == productBefore.unit
+
+        // Total stok produk harus bertambah sesuai stok batch.
+        && productBefore.totalStock is int
+        && productAfter.totalStock
+          == productBefore.totalStock
+            + request.resource.data.initialQty
+
+        // Lokasi harus langsung dikunci oleh batch yang dibuat.
+        && locationAfter.isOccupied == true
+        && locationAfter.batchId == batchId
+        && locationAfter.batchCode == batchId
+        && locationAfter.productId
+          == request.resource.data.productId
+        && locationAfter.remainingQty
+          == request.resource.data.initialQty;
+    }
+
+    function isValidBatchStockDecrease(batchId) {
+      let changedKeys = request.resource.data
+        .diff(resource.data)
+        .affectedKeys();
+
+      let qtyDifference = resource.data.remainingQty
+        - request.resource.data.remainingQty;
+
+      let productBefore = get(
+        /databases/$(database)/documents/products/$(resource.data.productId)
+      ).data;
+
+      let productAfter = getAfter(
+        /databases/$(database)/documents/products/$(resource.data.productId)
+      ).data;
+
+      let locationAfter = getAfter(
+        /databases/$(database)/documents/storage_locations/$(resource.data.storageLocation)
+      ).data;
+
+      return changedKeys.hasOnly([
+          'remainingQty',
+          'status',
+          'updatedAt'
+        ])
+        && resource.data.status == 'active'
+        && resource.data.remainingQty is int
+        && resource.data.remainingQty > 0
+        && request.resource.data.remainingQty is int
+        && request.resource.data.remainingQty >= 0
+        && qtyDifference > 0
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.status
+          == (
+            request.resource.data.remainingQty == 0
+              ? 'empty'
+              : 'active'
+          )
+
+        // Produk harus ikut diperbarui dalam transaksi yang sama.
+        && productAfter.totalStock is int
+        && productAfter.totalStock >= 0
+        && (
+          productAfter.totalStock
+            != productBefore.totalStock
+          || productAfter.updatedAt
+            != productBefore.updatedAt
+        )
+
+        // Lokasi tetap terkunci jika stok masih ada.
+        && (
+          request.resource.data.remainingQty > 0
+            ? (
+              locationAfter.isOccupied == true
+              && locationAfter.batchId == batchId
+              && locationAfter.remainingQty
+                == request.resource.data.remainingQty
+            )
+            : (
+              locationAfter.isOccupied == false
+              && locationAfter.batchId == null
+              && locationAfter.remainingQty == 0
+            )
+        );
+    }
+
+    function isValidBatchLocationTransfer(batchId) {
+      let changedKeys = request.resource.data
+        .diff(resource.data)
+        .affectedKeys();
+
+      let sourceLocationAfter = getAfter(
+        /databases/$(database)/documents/storage_locations/$(resource.data.storageLocation)
+      ).data;
+
+      let targetLocationAfter = getAfter(
+        /databases/$(database)/documents/storage_locations/$(request.resource.data.storageLocation)
+      ).data;
+
+      return changedKeys.hasOnly([
+          'storageLocation',
+          'updatedAt',
+          'lastLocationTransferAt',
+          'lastLocationTransferBy',
+          'lastLocationTransferByName',
+          'lastLocationTransferFrom',
+          'lastLocationTransferTo'
+        ])
+        && resource.data.status == 'active'
+        && resource.data.remainingQty > 0
+        && isBackupLocation(
+          resource.data.storageLocation
+        )
+        && isMainLocation(
+          request.resource.data.storageLocation
+        )
+        && request.resource.data.storageLocation
+          != resource.data.storageLocation
+        && request.resource.data.lastLocationTransferBy
+          == request.auth.uid
+        && request.resource.data.lastLocationTransferByName
+          is string
+        && request.resource.data.lastLocationTransferAt
+          is timestamp
+        && request.resource.data.lastLocationTransferFrom
+          == resource.data.storageLocation
+        && request.resource.data.lastLocationTransferTo
+          == request.resource.data.storageLocation
+        && request.resource.data.updatedAt is timestamp
+
+        // Lokasi asal harus dibebaskan.
+        && sourceLocationAfter.isOccupied == false
+        && sourceLocationAfter.batchId == null
+        && sourceLocationAfter.remainingQty == 0
+
+        // Lokasi tujuan harus dikunci oleh batch yang sama.
+        && targetLocationAfter.isOccupied == true
+        && targetLocationAfter.batchId == batchId
+        && targetLocationAfter.batchCode
+          == request.resource.data.batchCode
+        && targetLocationAfter.productId
+          == request.resource.data.productId
+        && targetLocationAfter.remainingQty
+          == request.resource.data.remainingQty;
+    }
+
+    match /batches/{batchId} {
+      allow read: if isActiveUser();
+
+      allow create: if isActiveUser()
+        && isValidBatchCreate(batchId);
+
+      allow update: if isActiveUser()
+        && (
+          isValidBatchStockDecrease(batchId)
+          || isValidBatchLocationTransfer(batchId)
+        );
+
+      allow delete: if false;
+    }
+
+    /*
+     * ============================================================
+     * STORAGE LOCATION LOCKS
+     * ============================================================
+     */
+
+    function isValidStorageLocationCore(locationId) {
+      return request.resource.data.keys().hasAll([
+          'id',
+          'location',
+          'zone',
+          'isOccupied',
+          'batchId',
+          'batchCode',
+          'productId',
+          'productName',
+          'remainingQty',
+          'occupiedAt',
+          'releasedAt',
+          'updatedAt'
+        ])
+        && request.resource.data.id == locationId
+        && request.resource.data.location == locationId
+        && isValidStorageLocation(locationId)
+        && request.resource.data.zone
+          == zoneForLocation(locationId)
+        && request.resource.data.isOccupied is bool
+        && request.resource.data.remainingQty is int
+        && request.resource.data.remainingQty >= 0
+        && request.resource.data.updatedAt is timestamp
+        && (
+          request.resource.data.isOccupied == true
+            ? (
+              request.resource.data.batchId is string
+              && request.resource.data.batchId.size() > 0
+              && request.resource.data.batchCode is string
+              && request.resource.data.productId is string
+              && request.resource.data.productName is string
+              && request.resource.data.remainingQty > 0
+              && request.resource.data.occupiedAt is timestamp
+              && request.resource.data.releasedAt == null
+            )
+            : (
+              request.resource.data.batchId == null
+              && request.resource.data.batchCode == null
+              && request.resource.data.productId == null
+              && request.resource.data.productName == null
+              && request.resource.data.remainingQty == 0
+              && request.resource.data.occupiedAt == null
+              && request.resource.data.releasedAt is timestamp
+            )
+        );
+    }
+
+    function isValidStorageLocationCreate(locationId) {
+      return request.resource.data.keys().hasOnly([
+          'id',
+          'location',
+          'zone',
+          'isOccupied',
+          'batchId',
+          'batchCode',
+          'productId',
+          'productName',
+          'remainingQty',
+          'occupiedAt',
+          'releasedAt',
+          'updatedAt'
+        ])
+        && isValidStorageLocationCore(locationId);
+    }
+
+    function isValidStorageLocationUpdate(locationId) {
+      let changedKeys = request.resource.data
+        .diff(resource.data)
+        .affectedKeys();
+
+      return changedKeys.hasOnly([
+          'id',
+          'location',
+          'zone',
+          'isOccupied',
+          'batchId',
+          'batchCode',
+          'productId',
+          'productName',
+          'remainingQty',
+          'occupiedAt',
+          'releasedAt',
+          'updatedAt'
+        ])
+        && isValidStorageLocationCore(locationId);
+    }
+
+    match /storage_locations/{locationId} {
+      allow read: if isActiveUser();
+
+      allow create: if isActiveUser()
+        && isValidStorageLocationCreate(locationId);
+
+      allow update: if isActiveUser()
+        && isValidStorageLocationUpdate(locationId);
+
+      allow delete: if false;
+    }
+
+    /*
+     * ============================================================
+     * COUNTERS
+     * ============================================================
+     */
+
+    function isValidCounterCreate(counterId) {
+      return request.resource.data.keys().hasAll([
+          'id',
+          'productId',
+          'productCode',
+          'lastNumber',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'productId',
+          'productCode',
+          'lastNumber',
+          'updatedAt'
+        ])
+        && counterId.matches('^batch_sequence_.+$')
+        && request.resource.data.id == counterId
+        && request.resource.data.productId is string
+        && request.resource.data.productId.size() > 0
+        && request.resource.data.productCode is string
+        && request.resource.data.productCode.size() > 0
+        && request.resource.data.lastNumber is int
+        && request.resource.data.lastNumber > 0
+        && request.resource.data.updatedAt is timestamp
+        && exists(
+          /databases/$(database)/documents/products/$(request.resource.data.productId)
+        );
+    }
+
+    function isValidCounterUpdate(counterId) {
+      let changedKeys = request.resource.data
+        .diff(resource.data)
+        .affectedKeys();
+
+      return changedKeys.hasOnly([
+          'lastNumber',
+          'updatedAt'
+        ])
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.id == counterId
+        && request.resource.data.productId
+          == resource.data.productId
+        && request.resource.data.productCode
+          == resource.data.productCode
+        && request.resource.data.lastNumber is int
+        && request.resource.data.lastNumber
+          > resource.data.lastNumber
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    match /counters/{counterId} {
+      allow read: if isActiveUser();
+
+      allow create: if isActiveUser()
+        && isValidCounterCreate(counterId);
+
+      allow update: if isActiveUser()
+        && isValidCounterUpdate(counterId);
+
+      allow delete: if false;
+    }
+
+    /*
+     * ============================================================
+     * TRANSACTIONS
+     * ============================================================
+     */
+
+    function isValidTransactionBase(transactionId) {
+      return request.resource.data.keys().hasAll([
+          'type',
+          'productId',
+          'productName',
+          'batchId',
+          'batchCode',
+          'qty',
+          'unit',
+          'performedBy',
+          'performedByName',
+          'notes',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'type',
+          'productId',
+          'productName',
+          'batchId',
+          'batchCode',
+          'qty',
+          'unit',
+          'performedBy',
+          'performedByName',
+          'notes',
+          'storageLocation',
+          'remainingQtyBefore',
+          'remainingQtyAfter',
+          'totalStockAfter',
+          'createdAt'
+        ])
+        && (
+          request.resource.data.type == 'stock_in'
+          || request.resource.data.type == 'stock_out'
+        )
+        && request.resource.data.productId is string
+        && request.resource.data.productName is string
+        && request.resource.data.batchId is string
+        && request.resource.data.batchCode is string
+        && request.resource.data.qty is int
+        && request.resource.data.qty > 0
+        && request.resource.data.unit is string
+        && request.resource.data.performedBy
+          == request.auth.uid
+        && request.resource.data.performedByName is string
+        && request.resource.data.notes is string
+        && request.resource.data.createdAt is timestamp
+        && (
+          !('id' in request.resource.data)
+          || request.resource.data.id == transactionId
+        )
+        && (
+          !('storageLocation' in request.resource.data)
+          || request.resource.data.storageLocation is string
+        )
+        && (
+          !('remainingQtyBefore' in request.resource.data)
+          || request.resource.data.remainingQtyBefore is int
+        )
+        && (
+          !('remainingQtyAfter' in request.resource.data)
+          || request.resource.data.remainingQtyAfter is int
+        )
+        && (
+          !('totalStockAfter' in request.resource.data)
+          || request.resource.data.totalStockAfter is int
+        );
+    }
+
+    function isValidStockInTransaction() {
+      let batchAfter = getAfter(
+        /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+      ).data;
+
+      return request.resource.data.type == 'stock_in'
+        && batchAfter.id
+          == request.resource.data.batchId
+        && batchAfter.batchCode
+          == request.resource.data.batchCode
+        && batchAfter.productId
+          == request.resource.data.productId
+        && batchAfter.productName
+          == request.resource.data.productName
+        && batchAfter.unit
+          == request.resource.data.unit
+        && batchAfter.initialQty
+          == request.resource.data.qty
+        && batchAfter.remainingQty
+          == request.resource.data.qty
+        && batchAfter.createdBy
+          == request.auth.uid;
+    }
+
+    function isValidStockOutTransaction() {
+      let batchBefore = get(
+        /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+      ).data;
+
+      let batchAfter = getAfter(
+        /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+      ).data;
+
+      let productBefore = get(
+        /databases/$(database)/documents/products/$(request.resource.data.productId)
+      ).data;
+
+      let productAfter = getAfter(
+        /databases/$(database)/documents/products/$(request.resource.data.productId)
+      ).data;
+
+      return request.resource.data.type == 'stock_out'
+        && batchBefore.status == 'active'
+        && batchBefore.remainingQty is int
+        && batchAfter.remainingQty is int
+        && batchBefore.remainingQty
+          - batchAfter.remainingQty
+          == request.resource.data.qty
+        && batchAfter.remainingQty >= 0
+        && batchAfter.status
+          == (
+            batchAfter.remainingQty == 0
+              ? 'empty'
+              : 'active'
+          )
+        && batchBefore.batchCode
+          == request.resource.data.batchCode
+        && batchBefore.productId
+          == request.resource.data.productId
+        && batchBefore.productName
+          == request.resource.data.productName
+        && batchBefore.unit
+          == request.resource.data.unit
+        && productAfter.totalStock is int
+        && productAfter.totalStock >= 0
+        && (
+          productAfter.totalStock
+            != productBefore.totalStock
+          || productAfter.updatedAt
+            != productBefore.updatedAt
+        )
+        && (
+          !('storageLocation' in request.resource.data)
+          || request.resource.data.storageLocation
+            == batchBefore.storageLocation
+        )
+        && (
+          !('remainingQtyBefore' in request.resource.data)
+          || request.resource.data.remainingQtyBefore
+            == batchBefore.remainingQty
+        )
+        && (
+          !('remainingQtyAfter' in request.resource.data)
+          || request.resource.data.remainingQtyAfter
+            == batchAfter.remainingQty
+        )
+        && (
+          !('totalStockAfter' in request.resource.data)
+          || request.resource.data.totalStockAfter
+            == productAfter.totalStock
+        );
+    }
+
+    match /transactions/{transactionId} {
+      // Riwayat transaksi, laporan, dan analisis hanya untuk owner.
+      allow read: if isOwner();
+
+      // Owner dan karyawan tetap dapat membuat transaksi operasional.
+      allow create: if isActiveUser()
+        && isValidTransactionBase(transactionId)
+        && (
+          isValidStockInTransaction()
+          || isValidStockOutTransaction()
+        );
+
+      allow update, delete: if false;
+    }
+
+    /*
+     * ============================================================
+     * BATCH MOVEMENTS
+     * ============================================================
+     */
+
+    function isValidBatchMovementCreate(movementId) {
+      let batchAfter = getAfter(
+        /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+      ).data;
+
+      return request.resource.data.keys().hasAll([
+          'id',
+          'type',
+          'batchId',
+          'batchCode',
+          'productId',
+          'productName',
+          'fromLocation',
+          'toLocation',
+          'remainingQty',
+          'unit',
+          'movedBy',
+          'movedByName',
+          'movedAt',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'type',
+          'batchId',
+          'batchCode',
+          'productId',
+          'productName',
+          'fromLocation',
+          'toLocation',
+          'remainingQty',
+          'unit',
+          'movedBy',
+          'movedByName',
+          'movedAt',
+          'createdAt'
+        ])
+        && request.resource.data.id == movementId
+        && request.resource.data.type
+          == 'location_transfer'
+        && isBackupLocation(
+          request.resource.data.fromLocation
+        )
+        && isMainLocation(
+          request.resource.data.toLocation
+        )
+        && request.resource.data.movedBy
+          == request.auth.uid
+        && request.resource.data.movedByName is string
+        && request.resource.data.remainingQty is int
+        && request.resource.data.remainingQty > 0
+        && request.resource.data.movedAt is timestamp
+        && request.resource.data.createdAt is timestamp
+        && batchAfter.id
+          == request.resource.data.batchId
+        && batchAfter.batchCode
+          == request.resource.data.batchCode
+        && batchAfter.productId
+          == request.resource.data.productId
+        && batchAfter.productName
+          == request.resource.data.productName
+        && batchAfter.unit
+          == request.resource.data.unit
+        && batchAfter.storageLocation
+          == request.resource.data.toLocation
+        && batchAfter.remainingQty
+          == request.resource.data.remainingQty
+        && batchAfter.lastLocationTransferBy
+          == request.auth.uid
+        && batchAfter.lastLocationTransferFrom
+          == request.resource.data.fromLocation
+        && batchAfter.lastLocationTransferTo
+          == request.resource.data.toLocation;
+    }
+
+    match /batch_movements/{movementId} {
+      allow read: if isActiveUser();
+
+      allow create: if isActiveUser()
+        && isValidBatchMovementCreate(movementId);
+
+      allow update, delete: if false;
+    }
+
+    /*
+     * ============================================================
+     * IMPORT LOGS
+     * ============================================================
+     */
+
+    match /import_logs/{logId} {
+      allow read: if isOwner();
+      allow write: if false;
+    }
+
+    /*
+     * ============================================================
+     * DEFAULT DENY
+     * ============================================================
+     */
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

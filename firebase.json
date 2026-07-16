@@ -1,1 +1,24 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"stok-abunawas","appId":"1:554054643915:android:cf4f54c02cfc5527e32b4e","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"stok-abunawas","configurations":{"android":"1:554054643915:android:cf4f54c02cfc5527e32b4e"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "stok-abunawas",
+          "appId": "1:554054643915:android:cf4f54c02cfc5527e32b4e",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "stok-abunawas",
+          "configurations": {
+            "android": "1:554054643915:android:cf4f54c02cfc5527e32b4e"
+          }
+        }
+      }
+    }
+  }
+}

@@ -48,3 +48,6 @@ firebase_import_python/*firebase-adminsdk*.json
 
 # Python virtual environment
 firebase_import_python/.venv/
+
+# Python virtual environment
+firebase_import_python/.venv/

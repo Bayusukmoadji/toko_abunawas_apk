@@ -15,18 +15,27 @@ class BatchListPage extends StatefulWidget {
 class _BatchListPageState extends State<BatchListPage> {
   final BatchRepository _batchRepository = BatchRepository();
 
-  static const int _pageLimit = 30;
+  final TextEditingController _searchController = TextEditingController();
+
+  static const int _pageLimit = 20;
+
+  late Future<List<BatchProductFilterOption>> _productOptionsFuture;
 
   String _selectedStatusFilter = 'Aktif';
+  String _selectedProductId = '';
   DateTime? _selectedReceivedDate;
+  String _appliedSearchQuery = '';
 
-  List<BatchModel> _batches = [];
-  bool _isLoading = true;
-  bool _isLoadingMore = false;
-  bool _hasMore = true;
-  Object? _error;
+  List<BatchModel> _pagedBatches = [];
 
   DocumentSnapshot<Map<String, dynamic>>? _lastBatchDocument;
+
+  bool _isLoadingPage = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = false;
+
+  Object? _pageError;
+
   int _queryVersion = 0;
 
   final BoxShadow _softShadow = BoxShadow(
@@ -35,143 +44,279 @@ class _BatchListPageState extends State<BatchListPage> {
     offset: const Offset(0, 4),
   );
 
+  bool get _isActiveStatus {
+    return _selectedStatusFilter == 'Aktif';
+  }
+
+  bool get _isSearchDirty {
+    return _searchController.text.trim() != _appliedSearchQuery;
+  }
+
+  bool get _hasFilter {
+    return _selectedProductId.isNotEmpty ||
+        _selectedReceivedDate != null ||
+        _appliedSearchQuery.isNotEmpty ||
+        _selectedStatusFilter != 'Aktif';
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadBatches(reset: true);
+
+    _productOptionsFuture = _batchRepository.getBatchProductFilterOptions();
+
+    _searchController.addListener(
+      _onSearchChanged,
+    );
   }
 
-  Future<void> _loadBatches({required bool reset}) async {
-    final currentVersion = ++_queryVersion;
+  @override
+  void dispose() {
+    _searchController
+      ..removeListener(
+        _onSearchChanged,
+      )
+      ..dispose();
+
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+  }
+
+  DateTime _dateOnly(DateTime value) {
+    final localDate = value.toLocal();
+
+    return DateTime(
+      localDate.year,
+      localDate.month,
+      localDate.day,
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+
+    final month = date.month.toString().padLeft(2, '0');
+
+    return '$day/$month/${date.year}';
+  }
+
+  bool _isBatchEmpty(BatchModel batch) {
+    final status = batch.status.toLowerCase().trim();
+
+    return status == 'empty' || status == 'depleted' || batch.remainingQty <= 0;
+  }
+
+  Color _getBatchStatusColor(
+    BatchModel batch,
+  ) {
+    return _isBatchEmpty(batch) ? Colors.red.shade500 : Colors.green.shade600;
+  }
+
+  IconData _getBatchStatusIcon(
+    BatchModel batch,
+  ) {
+    return _isBatchEmpty(batch)
+        ? Icons.cancel_outlined
+        : Icons.inventory_2_outlined;
+  }
+
+  String _getBatchStatusText(
+    BatchModel batch,
+  ) {
+    return _isBatchEmpty(batch) ? 'Habis' : 'Aktif';
+  }
+
+  String _getUnit(BatchModel batch) {
+    final unit = batch.unit.trim();
+
+    return unit.isEmpty ? 'karung' : unit;
+  }
+
+  String _cleanError(Object? error) {
+    return error
+        .toString()
+        .replaceFirst(
+          'Exception: ',
+          '',
+        )
+        .replaceFirst(
+          'FirebaseException: ',
+          '',
+        );
+  }
+
+  Future<void> _loadPagedBatches({
+    required bool reset,
+  }) async {
+    if (_isActiveStatus) {
+      return;
+    }
+
+    if (!reset && (_isLoadingMore || !_hasMore)) {
+      return;
+    }
+
+    final currentVersion = reset ? ++_queryVersion : _queryVersion;
 
     if (reset) {
       setState(() {
-        _batches = [];
+        _pagedBatches = [];
         _lastBatchDocument = null;
-        _hasMore = true;
-        _isLoading = true;
+        _hasMore = false;
+        _isLoadingPage = true;
         _isLoadingMore = false;
-        _error = null;
+        _pageError = null;
       });
     } else {
-      if (_isLoadingMore || !_hasMore) return;
-
       setState(() {
         _isLoadingMore = true;
-        _error = null;
+        _pageError = null;
       });
     }
 
     try {
       final result = await _batchRepository.getBatchesPage(
         statusFilter: _selectedStatusFilter,
+        productId: _selectedProductId.isEmpty ? null : _selectedProductId,
         receivedDate: _selectedReceivedDate,
+        searchQuery: _appliedSearchQuery,
         limit: _pageLimit,
         startAfterDocument: reset ? null : _lastBatchDocument,
       );
 
-      if (!mounted || currentVersion != _queryVersion) return;
+      if (!mounted || currentVersion != _queryVersion) {
+        return;
+      }
 
       setState(() {
-        if (reset) {
-          _batches = result.batches;
-        } else {
-          _batches = [
-            ..._batches,
-            ...result.batches,
-          ];
-        }
+        _pagedBatches = reset
+            ? result.batches
+            : [
+                ..._pagedBatches,
+                ...result.batches,
+              ];
 
         _lastBatchDocument = result.lastDocument;
+
         _hasMore = result.hasMore;
-        _isLoading = false;
+        _isLoadingPage = false;
         _isLoadingMore = false;
       });
-    } catch (e) {
-      if (!mounted || currentVersion != _queryVersion) return;
+    } catch (error) {
+      if (!mounted || currentVersion != _queryVersion) {
+        return;
+      }
 
       setState(() {
-        _error = e;
-        _isLoading = false;
+        _pageError = error;
+        _isLoadingPage = false;
         _isLoadingMore = false;
       });
     }
   }
 
-  String _formatDate(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final year = date.year.toString();
-
-    return '$day/$month/$year';
-  }
-
-  bool _isBatchEmpty(BatchModel batch) {
-    final normalizedStatus = batch.status.toLowerCase().trim();
-
-    return normalizedStatus == 'empty' ||
-        normalizedStatus == 'depleted' ||
-        batch.remainingQty <= 0;
-  }
-
-  Color _getBatchStatusColor(BatchModel batch) {
-    if (_isBatchEmpty(batch)) {
-      return Colors.red.shade400;
+  void _setStatusFilter(String status) {
+    if (_selectedStatusFilter == status) {
+      return;
     }
 
-    return Colors.green.shade600;
-  }
+    _appliedSearchQuery = _searchController.text.trim();
 
-  IconData _getBatchStatusIcon(BatchModel batch) {
-    if (_isBatchEmpty(batch)) {
-      return Icons.cancel_outlined;
+    setState(() {
+      _selectedStatusFilter = status;
+      _pageError = null;
+    });
+
+    if (status == 'Aktif') {
+      _queryVersion++;
+
+      setState(() {
+        _pagedBatches = [];
+        _lastBatchDocument = null;
+        _hasMore = false;
+        _isLoadingPage = false;
+        _isLoadingMore = false;
+      });
+
+      return;
     }
 
-    return Icons.inventory_2_outlined;
-  }
-
-  String _getBatchStatusText(BatchModel batch) {
-    if (_isBatchEmpty(batch)) {
-      return 'Habis';
-    }
-
-    return 'Aktif';
-  }
-
-  int _getActiveBatchCount(List<BatchModel> batches) {
-    return batches.where((batch) => !_isBatchEmpty(batch)).length;
-  }
-
-  int _getEmptyBatchCount(List<BatchModel> batches) {
-    return batches.where(_isBatchEmpty).length;
-  }
-
-  int _getTotalRemainingStock(List<BatchModel> batches) {
-    return batches.fold<int>(
-      0,
-      (total, batch) => total + batch.remainingQty,
+    _loadPagedBatches(
+      reset: true,
     );
   }
 
-  String _getFilterDescription() {
-    final statusText = _selectedStatusFilter;
-    final dateText = _selectedReceivedDate == null
-        ? 'Semua tanggal'
-        : _formatDate(_selectedReceivedDate!);
+  void _setProductFilter(
+    String productId,
+  ) {
+    if (_selectedProductId == productId) {
+      return;
+    }
 
-    return '$statusText • $dateText • ${_batches.length} data dimuat';
+    setState(() {
+      _selectedProductId = productId;
+    });
+
+    if (!_isActiveStatus) {
+      _loadPagedBatches(
+        reset: true,
+      );
+    }
   }
 
-  Future<void> _pickReceivedDate({
-    StateSetter? setModalState,
-  }) async {
-    final now = DateTime.now();
+  void _applySearch() {
+    FocusScope.of(context).unfocus();
+
+    _appliedSearchQuery = _searchController.text.trim();
+
+    if (_isActiveStatus) {
+      setState(() {});
+      return;
+    }
+
+    _loadPagedBatches(
+      reset: true,
+    );
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _appliedSearchQuery = '';
+
+    if (_isActiveStatus) {
+      setState(() {});
+      return;
+    }
+
+    _loadPagedBatches(
+      reset: true,
+    );
+  }
+
+  Future<void> _pickReceivedDate() async {
+    final today = _dateOnly(DateTime.now());
+
+    var initialDate = _selectedReceivedDate ?? today;
+
+    if (initialDate.isAfter(today)) {
+      initialDate = today;
+    }
 
     final pickedDate = await showDatePicker(
       context: context,
+      initialDate: initialDate,
       firstDate: DateTime(2024),
-      lastDate: DateTime(2100),
-      initialDate: _selectedReceivedDate ?? now,
+      lastDate: today,
+      helpText: 'Pilih Tanggal Masuk Batch',
+      cancelText: 'Batal',
+      confirmText: 'Pilih',
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -186,296 +331,247 @@ class _BatchListPageState extends State<BatchListPage> {
       },
     );
 
-    if (pickedDate == null) return;
+    if (pickedDate == null || !mounted) {
+      return;
+    }
 
     setState(() {
-      _selectedReceivedDate = pickedDate;
+      _selectedReceivedDate = _dateOnly(pickedDate);
     });
 
-    setModalState?.call(() {});
-    _loadBatches(reset: true);
+    if (!_isActiveStatus) {
+      _loadPagedBatches(
+        reset: true,
+      );
+    }
   }
 
-  void _clearReceivedDate({
-    StateSetter? setModalState,
-  }) {
+  void _clearReceivedDate() {
+    if (_selectedReceivedDate == null) {
+      return;
+    }
+
     setState(() {
       _selectedReceivedDate = null;
     });
 
-    setModalState?.call(() {});
-    _loadBatches(reset: true);
+    if (!_isActiveStatus) {
+      _loadPagedBatches(
+        reset: true,
+      );
+    }
   }
 
-  void _resetFilter({
-    StateSetter? setModalState,
-  }) {
+  void _resetFilter() {
+    _queryVersion++;
+
     setState(() {
       _selectedStatusFilter = 'Aktif';
+      _selectedProductId = '';
       _selectedReceivedDate = null;
+      _appliedSearchQuery = '';
+      _pagedBatches = [];
+      _lastBatchDocument = null;
+      _hasMore = false;
+      _isLoadingPage = false;
+      _isLoadingMore = false;
+      _pageError = null;
+      _searchController.clear();
     });
-
-    setModalState?.call(() {});
-    _loadBatches(reset: true);
   }
 
-  void _setStatusFilter({
-    required String status,
-    required StateSetter setModalState,
-  }) {
-    if (_selectedStatusFilter == status) return;
-
+  void _reloadProductOptions() {
     setState(() {
-      _selectedStatusFilter = status;
+      _productOptionsFuture = _batchRepository.getBatchProductFilterOptions();
     });
-
-    setModalState(() {});
-    _loadBatches(reset: true);
   }
 
-  void _showFilterBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: false,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final selectedDateText = _selectedReceivedDate == null
-                ? 'Semua tanggal masuk'
-                : _formatDate(_selectedReceivedDate!);
-
-            return SafeArea(
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFAFAFA),
-                  borderRadius: BorderRadius.vertical(
-                    top: Radius.circular(24),
-                  ),
-                ),
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 46,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: Colors.black26,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Filter Batch',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Status Batch',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: ['Semua', 'Aktif', 'Habis'].map((status) {
-                        final isSelected = _selectedStatusFilter == status;
-
-                        return Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(14),
-                              onTap: () {
-                                _setStatusFilter(
-                                  status: status,
-                                  setModalState: setModalState,
-                                );
-                              },
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: isSelected
-                                      ? const LinearGradient(
-                                          colors: [
-                                            Color(0xFF015816),
-                                            Color(0xFF038E1B),
-                                            Color(0xFF84E977),
-                                          ],
-                                          stops: [0.0, 0.55, 1.0],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        )
-                                      : null,
-                                  color: isSelected ? null : Colors.white,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? const Color(0xFF038E1B)
-                                        : const Color(0xFFDADADA),
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    status,
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? Colors.white
-                                          : Colors.black87,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'Tanggal Masuk Batch',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: const Color(0xFFDADADA),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today_outlined,
-                            color: Colors.green.shade700,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              selectedDateText,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ),
-                          if (_selectedReceivedDate != null)
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              icon: const Icon(
-                                Icons.close,
-                                size: 18,
-                                color: Colors.black54,
-                              ),
-                              onPressed: () {
-                                _clearReceivedDate(
-                                  setModalState: setModalState,
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildFilterActionButton(
-                            label: 'Pilih Tanggal',
-                            icon: Icons.calendar_month,
-                            onTap: () {
-                              _pickReceivedDate(
-                                setModalState: setModalState,
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildFilterActionButton(
-                            label: 'Reset Filter',
-                            icon: Icons.refresh,
-                            onTap: () {
-                              _resetFilter(setModalState: setModalState);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 44,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF038E1B),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text(
-                          'Tutup Filter',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+  Widget _buildSectionTitle({
+    required String title,
+    required String subtitle,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: Colors.black54,
+            fontSize: 11,
+            height: 1.3,
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildFilterActionButton({
+  Widget _buildCleanCard({
+    required Widget child,
+    EdgeInsetsGeometry? padding,
+  }) {
+    return Container(
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE5E5E5),
+          width: 1,
+        ),
+        boxShadow: [_softShadow],
+      ),
+      child: Padding(
+        padding: padding ?? const EdgeInsets.all(16),
+        child: child,
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration({
+    required String label,
+    required String hint,
+    required IconData icon,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: Icon(
+        icon,
+        color: const Color(0xFF038E1B),
+      ),
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 14,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(
+          color: Color(0xFFDADADA),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(
+          color: Color(0xFF038E1B),
+          width: 2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusFilterChip(
+    String status,
+  ) {
+    final isSelected = _selectedStatusFilter == status;
+
+    IconData icon;
+
+    switch (status) {
+      case 'Aktif':
+        icon = Icons.inventory_2_outlined;
+        break;
+      case 'Habis':
+        icon = Icons.cancel_outlined;
+        break;
+      default:
+        icon = Icons.all_inclusive;
+    }
+
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          _setStatusFilter(status);
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(
+            milliseconds: 180,
+          ),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 6,
+            vertical: 10,
+          ),
+          decoration: BoxDecoration(
+            gradient: isSelected
+                ? const LinearGradient(
+                    colors: [
+                      Color(0xFF015816),
+                      Color(0xFF038E1B),
+                      Color(0xFF84E977),
+                    ],
+                    stops: [
+                      0,
+                      0.55,
+                      1,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: isSelected ? null : Colors.white,
+            borderRadius: BorderRadius.circular(
+              14,
+            ),
+            border: Border.all(
+              color: isSelected
+                  ? const Color(
+                      0xFF038E1B,
+                    )
+                  : const Color(
+                      0xFFDADADA,
+                    ),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 15,
+                color: isSelected ? Colors.white : Colors.black54,
+              ),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  status,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : Colors.black87,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrimaryButton({
     required String label,
     required IconData icon,
     required VoidCallback onTap,
   }) {
     return Container(
-      height: 42,
+      height: 46,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -484,14 +580,16 @@ class _BatchListPageState extends State<BatchListPage> {
             Color(0xFF038E1B),
             Color(0xFF84E977),
           ],
-          stops: [0.0, 0.55, 1.0],
+          stops: [0, 0.55, 1],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.11),
+            color: Colors.black.withOpacity(
+              0.11,
+            ),
             blurRadius: 6,
             offset: const Offset(0, 3),
           ),
@@ -502,11 +600,17 @@ class _BatchListPageState extends State<BatchListPage> {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 8,
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, color: Colors.white, size: 16),
+                Icon(
+                  icon,
+                  color: Colors.white,
+                  size: 17,
+                ),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -528,134 +632,334 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  Widget _buildCleanCard({
-    required Widget child,
-    EdgeInsetsGeometry? padding,
-    EdgeInsetsGeometry? margin,
-    Color color = Colors.white,
-    Color borderColor = const Color(0xFFE5E5E5),
-  }) {
-    return Container(
-      width: double.infinity,
-      margin: margin,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: borderColor,
-          width: 1,
-        ),
-        boxShadow: [_softShadow],
-      ),
-      child: Padding(
-        padding: padding ?? const EdgeInsets.all(16),
-        child: child,
-      ),
-    );
-  }
+  Widget _buildFilterCard(
+    List<BatchProductFilterOption> productOptions,
+  ) {
+    final selectedProductExists = _selectedProductId.isEmpty ||
+        productOptions.any(
+          (option) => option.id == _selectedProductId,
+        );
 
-  Widget _buildSummaryCard(List<BatchModel> batches) {
-    final activeBatch = _getActiveBatchCount(batches);
-    final emptyBatch = _getEmptyBatchCount(batches);
-    final totalRemainingStock = _getTotalRemainingStock(batches);
+    final effectiveProductId = selectedProductExists ? _selectedProductId : '';
+
+    final helperText = _isActiveStatus
+        ? 'Batch aktif ditampilkan '
+            'secara realtime tanpa '
+            'pagination. Pencarian '
+            'mencakup semua atribut '
+            'batch.'
+        : 'Riwayat dicari langsung '
+            'pada seluruh data '
+            'Firestore dan ditampilkan '
+            '$_pageLimit data per '
+            'pemuatan.';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Ringkasan Tampilan Batch',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Ringkasan dihitung dari data yang sedang dimuat pada halaman ini.',
-          style: TextStyle(
-            color: Colors.black54,
-            fontSize: 11,
-            height: 1.2,
-          ),
+        _buildSectionTitle(
+          title: 'Pencarian dan Filter Batch',
+          subtitle: helperText,
         ),
         const SizedBox(height: 12),
         _buildCleanCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildSummaryRow(
-                label: 'Data Dimuat',
-                value: '${batches.length}',
-              ),
-              _buildSummaryRow(
-                label: 'Batch Aktif',
-                value: '$activeBatch',
-              ),
-              _buildSummaryRow(
-                label: 'Batch Habis',
-                value: '$emptyBatch',
-              ),
-              _buildSummaryRow(
-                label: 'Total Sisa Stok',
-                value: '$totalRemainingStock karung',
-                isLast: true,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummaryRow({
-    required String label,
-    required String value,
-    bool isLast = false,
-  }) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                value,
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  fontSize: 13,
+              const Text(
+                'Cari Batch',
+                style: TextStyle(
+                  fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: Colors.black87,
                 ),
               ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) {
+                        _applySearch();
+                      },
+                      decoration: _inputDecoration(
+                        label: 'Pencarian Semua Atribut',
+                        hint: 'Ramos, A1, Bayu, BATCH-..., 0...',
+                        icon: Icons.search_rounded,
+                        suffixIcon: _searchController.text.trim().isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Hapus pencarian',
+                                onPressed: _clearSearch,
+                                icon: const Icon(
+                                  Icons.close_rounded,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                    width: 92,
+                    child: _buildPrimaryButton(
+                      label: 'Cari',
+                      icon: Icons.search_rounded,
+                      onTap: _applySearch,
+                    ),
+                  ),
+                ],
+              ),
+              if (_isSearchDirty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(
+                      10,
+                    ),
+                    border: Border.all(
+                      color: Colors.orange.shade200,
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: Colors.orange,
+                      ),
+                      SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          'Tekan tombol Cari '
+                          'untuk menerapkan '
+                          'kata pencarian terbaru.',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              const Text(
+                'Produk / Merk Beras',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                key: ValueKey(
+                  effectiveProductId,
+                ),
+                value: effectiveProductId,
+                isExpanded: true,
+                decoration: _inputDecoration(
+                  label: 'Filter Produk',
+                  hint: 'Pilih produk',
+                  icon: Icons.inventory_2_outlined,
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text(
+                      'Semua Produk / '
+                      'Merk Beras',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  ...productOptions.map(
+                    (option) {
+                      final codeText =
+                          option.code.trim().isEmpty ? '' : ' (${option.code})';
+
+                      return DropdownMenuItem<String>(
+                        value: option.id,
+                        child: Text(
+                          '${option.name}'
+                          '$codeText',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+                onChanged: (productId) {
+                  if (productId != null) {
+                    _setProductFilter(
+                      productId,
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Status Batch',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _buildStatusFilterChip(
+                    'Aktif',
+                  ),
+                  const SizedBox(width: 8),
+                  _buildStatusFilterChip(
+                    'Habis',
+                  ),
+                  const SizedBox(width: 8),
+                  _buildStatusFilterChip(
+                    'Semua',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildPrimaryButton(
+                      label: _selectedReceivedDate == null
+                          ? 'Semua Tanggal'
+                          : _formatDate(
+                              _selectedReceivedDate!,
+                            ),
+                      icon: Icons.calendar_month_outlined,
+                      onTap: _pickReceivedDate,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SizedBox(
+                      height: 46,
+                      child: OutlinedButton.icon(
+                        onPressed: _resetFilter,
+                        icon: const Icon(
+                          Icons.refresh_rounded,
+                          size: 17,
+                        ),
+                        label: const Text(
+                          'Reset Filter',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(
+                            0xFF038E1B,
+                          ),
+                          side: const BorderSide(
+                            color: Color(
+                              0xFF038E1B,
+                            ),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_selectedReceivedDate != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(
+                      0xFFF1F8F1,
+                    ),
+                    borderRadius: BorderRadius.circular(
+                      12,
+                    ),
+                    border: Border.all(
+                      color: const Color(
+                        0xFFC8E6C9,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.event_available_outlined,
+                        size: 17,
+                        color: Color(
+                          0xFF038E1B,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Tanggal masuk aktif: '
+                          '${_formatDate(_selectedReceivedDate!)}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Hapus filter tanggal',
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 28,
+                          minHeight: 28,
+                        ),
+                        onPressed: _clearReceivedDate,
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          size: 18,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
-        if (!isLast)
-          const Divider(
-            color: Colors.black12,
-            thickness: 1,
-            height: 10,
-          ),
       ],
     );
   }
 
-  Widget _buildStatusChip(BatchModel batch) {
+  Widget _buildStatusChip(
+    BatchModel batch,
+  ) {
     final statusColor = _getBatchStatusColor(batch);
 
     return Container(
@@ -702,7 +1006,7 @@ class _BatchListPageState extends State<BatchListPage> {
               style: const TextStyle(
                 fontSize: 10.5,
                 color: Colors.black54,
-                height: 1.25,
+                height: 1.3,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -712,20 +1016,26 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  Widget _buildBatchCard({
-    required BuildContext context,
-    required BatchModel batch,
-  }) {
+  Widget _buildBatchCard(
+    BatchModel batch,
+  ) {
     final receivedDate = batch.receivedAt.toDate();
+
     final location = batch.storageLocation.trim().isEmpty
         ? '-'
         : batch.storageLocation.trim();
+
     final statusColor = _getBatchStatusColor(batch);
+
     final statusIcon = _getBatchStatusIcon(batch);
+
+    final unit = _getUnit(batch);
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(
+        bottom: 12,
+      ),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: statusColor.withOpacity(0.055),
@@ -738,16 +1048,21 @@ class _BatchListPageState extends State<BatchListPage> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {
-            Navigator.push(
+          onTap: () async {
+            await Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => BatchDetailPage(batch: batch),
+                builder: (context) => BatchDetailPage(
+                  batch: batch,
+                ),
               ),
             );
           },
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 13,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -756,7 +1071,9 @@ class _BatchListPageState extends State<BatchListPage> {
                   children: [
                     CircleAvatar(
                       radius: 17,
-                      backgroundColor: statusColor.withOpacity(0.15),
+                      backgroundColor: statusColor.withOpacity(
+                        0.15,
+                      ),
                       child: Icon(
                         statusIcon,
                         size: 17,
@@ -766,12 +1083,17 @@ class _BatchListPageState extends State<BatchListPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.only(
+                          top: 2,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              batch.productName,
+                              batch.productName.trim().isEmpty
+                                  ? 'Produk '
+                                      'Tanpa Nama'
+                                  : batch.productName,
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
@@ -779,9 +1101,13 @@ class _BatchListPageState extends State<BatchListPage> {
                                 height: 1.25,
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(
+                              height: 2,
+                            ),
                             Text(
-                              batch.batchCode,
+                              batch.batchCode.trim().isEmpty
+                                  ? batch.id
+                                  : batch.batchCode,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 11,
@@ -795,12 +1121,18 @@ class _BatchListPageState extends State<BatchListPage> {
                     ),
                     const SizedBox(width: 8),
                     Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: _buildStatusChip(batch),
+                      padding: const EdgeInsets.only(
+                        top: 4,
+                      ),
+                      child: _buildStatusChip(
+                        batch,
+                      ),
                     ),
                     const SizedBox(width: 4),
                     const Padding(
-                      padding: EdgeInsets.only(top: 4),
+                      padding: EdgeInsets.only(
+                        top: 4,
+                      ),
                       child: Icon(
                         Icons.keyboard_double_arrow_right,
                         color: Colors.black54,
@@ -811,23 +1143,35 @@ class _BatchListPageState extends State<BatchListPage> {
                 ),
                 const SizedBox(height: 10),
                 Padding(
-                  padding: const EdgeInsets.only(left: 44),
+                  padding: const EdgeInsets.only(
+                    left: 44,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildInfoRow(
                         icon: Icons.calendar_today_outlined,
-                        text: 'Tanggal masuk: ${_formatDate(receivedDate)}',
+                        text: 'Tanggal masuk: '
+                            '${_formatDate(receivedDate)}',
                       ),
                       _buildInfoRow(
                         icon: Icons.inventory_outlined,
-                        text:
-                            'Sisa stok: ${batch.remainingQty} ${batch.unit} dari ${batch.initialQty} ${batch.unit}',
+                        text: 'Sisa stok: '
+                            '${batch.remainingQty} '
+                            '$unit dari '
+                            '${batch.initialQty} '
+                            '$unit',
                       ),
                       _buildInfoRow(
                         icon: Icons.location_on_outlined,
                         text: 'Lokasi: $location',
                       ),
+                      if (batch.createdByName.trim().isNotEmpty)
+                        _buildInfoRow(
+                          icon: Icons.person_outline,
+                          text: 'Dicatat oleh: '
+                              '${batch.createdByName.trim()}',
+                        ),
                     ],
                   ),
                 ),
@@ -839,33 +1183,176 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  Widget _buildEmptyFilterState() {
+  Widget _buildEmptyState() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.orange.shade50,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.orange.shade200),
+        border: Border.all(
+          color: Colors.orange.shade200,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            Icons.search_off,
-            color: Colors.orange.shade600,
-            size: 24,
+            _hasFilter ? Icons.search_off_rounded : Icons.inventory_2_outlined,
+            color: Colors.orange.shade700,
+            size: 26,
           ),
           const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'Tidak ada batch yang sesuai dengan filter yang dipilih.',
-              style: TextStyle(
-                color: Colors.black87,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _hasFilter
+                      ? 'Data Tidak '
+                          'Ditemukan'
+                      : 'Belum Ada Batch',
+                  style: const TextStyle(
+                    color: Colors.black87,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _hasFilter
+                      ? 'Tidak ada batch '
+                          'yang sesuai dengan '
+                          'pencarian atau '
+                          'filter yang dipilih.'
+                      : 'Belum ada data batch '
+                          'yang tersimpan.',
+                  style: const TextStyle(
+                    color: Colors.black54,
+                    fontSize: 12,
+                    height: 1.35,
+                  ),
+                ),
+                if (_hasFilter) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _resetFilter,
+                    icon: const Icon(
+                      Icons.refresh_rounded,
+                      size: 17,
+                    ),
+                    label: const Text(
+                      'Reset Pencarian '
+                      'dan Filter',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(
+                        0xFF038E1B,
+                      ),
+                      side: const BorderSide(
+                        color: Color(
+                          0xFF038E1B,
+                        ),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingState(
+    String message,
+  ) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(
+              color: Color(0xFF038E1B),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              message,
+              style: const TextStyle(
+                color: Colors.black54,
                 fontSize: 12,
-                height: 1.3,
+                fontWeight: FontWeight.w600,
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState({
+    required Object? error,
+    required VoidCallback onRetry,
+  }) {
+    final message = _cleanError(error);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.red.shade200,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.error_outline,
+            color: Colors.red.shade600,
+            size: 38,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Gagal memuat data batch',
+            style: TextStyle(
+              color: Colors.red.shade700,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.red.shade700,
+              fontSize: 11,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(
+              Icons.refresh_rounded,
+              size: 17,
+            ),
+            label: const Text(
+              'Coba Lagi',
             ),
           ),
         ],
@@ -874,49 +1361,58 @@ class _BatchListPageState extends State<BatchListPage> {
   }
 
   Widget _buildLoadMoreButton() {
-    if (!_hasMore) {
-      return const Padding(
-        padding: EdgeInsets.only(top: 4, bottom: 8),
-        child: Center(
-          child: Text(
-            'Semua batch yang sesuai filter sudah dimuat.',
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.black45,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      );
+    if (!_hasMore && !_isLoadingMore) {
+      return const SizedBox.shrink();
     }
 
     return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      padding: const EdgeInsets.only(
+        top: 4,
+      ),
       child: SizedBox(
         width: double.infinity,
-        height: 42,
+        height: 46,
         child: OutlinedButton.icon(
           onPressed: _isLoadingMore
               ? null
               : () {
-                  _loadBatches(reset: false);
+                  _loadPagedBatches(
+                    reset: false,
+                  );
                 },
           icon: _isLoadingMore
               ? const SizedBox(
-                  width: 16,
-                  height: 16,
+                  width: 17,
+                  height: 17,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Color(0xFF038E1B),
+                    color: Color(
+                      0xFF038E1B,
+                    ),
                   ),
                 )
-              : const Icon(Icons.expand_more),
-          label: Text(_isLoadingMore ? 'Memuat...' : 'Muat Lagi'),
+              : const Icon(
+                  Icons.expand_more_rounded,
+                ),
+          label: Text(
+            _isLoadingMore ? 'Memuat...' : 'Muat Lebih Banyak',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF038E1B),
-            side: const BorderSide(color: Color(0xFF038E1B)),
+            foregroundColor: const Color(
+              0xFF038E1B,
+            ),
+            side: const BorderSide(
+              color: Color(
+                0xFF038E1B,
+              ),
+            ),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(
+                14,
+              ),
             ),
           ),
         ),
@@ -924,39 +1420,152 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  Widget _buildErrorState(Object? error) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.red.shade50,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.red.shade200),
-          ),
-          child: Text(
-            'Gagal memuat data batch: $error',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.red.shade700,
-              fontWeight: FontWeight.w500,
+  Widget _buildDataSection({
+    required List<BatchModel> batches,
+    required bool isPaginated,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: _buildSectionTitle(
+                title: 'Data Batch',
+                subtitle: isPaginated
+                    ? 'Riwayat dimuat '
+                        'bertahap sebanyak '
+                        '$_pageLimit data.'
+                    : 'Batch aktif '
+                        'diperbarui realtime '
+                        'tanpa pagination.',
+              ),
             ),
-          ),
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 11,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(
+                  0xFFF1F8F1,
+                ),
+                borderRadius: BorderRadius.circular(
+                  99,
+                ),
+                border: Border.all(
+                  color: const Color(
+                    0xFFC8E6C9,
+                  ),
+                ),
+              ),
+              child: Text(
+                '${batches.length} data',
+                style: const TextStyle(
+                  color: Color(
+                    0xFF038E1B,
+                  ),
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
         ),
-      ),
+        const SizedBox(height: 14),
+        if (batches.isEmpty)
+          _buildEmptyState()
+        else ...[
+          ...batches.map(
+            _buildBatchCard,
+          ),
+          if (isPaginated) _buildLoadMoreButton(),
+        ],
+      ],
     );
   }
 
-  Widget _buildLoadingState() {
-    return const Center(
-      child: CircularProgressIndicator(color: Colors.green),
+  Widget _buildActiveDataSection() {
+    return StreamBuilder<List<BatchModel>>(
+      stream: _batchRepository.getActiveBatchesStream(
+        productId: _selectedProductId.isEmpty ? null : _selectedProductId,
+        receivedDate: _selectedReceivedDate,
+        searchQuery: _appliedSearchQuery,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return _buildLoadingState(
+            'Memuat batch aktif...',
+          );
+        }
+
+        if (snapshot.hasError) {
+          return _buildErrorState(
+            error: snapshot.error,
+            onRetry: () {
+              setState(() {});
+            },
+          );
+        }
+
+        return _buildDataSection(
+          batches: snapshot.data ?? <BatchModel>[],
+          isPaginated: false,
+        );
+      },
+    );
+  }
+
+  Widget _buildPagedDataSection() {
+    if (_isLoadingPage && _pagedBatches.isEmpty) {
+      return _buildLoadingState(
+        'Memuat riwayat batch...',
+      );
+    }
+
+    if (_pageError != null && _pagedBatches.isEmpty) {
+      return _buildErrorState(
+        error: _pageError,
+        onRetry: () {
+          _loadPagedBatches(
+            reset: true,
+          );
+        },
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildDataSection(
+          batches: _pagedBatches,
+          isPaginated: true,
+        ),
+        if (_pageError != null && _pagedBatches.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(
+              top: 8,
+            ),
+            child: Text(
+              'Sebagian data gagal '
+              'dimuat: '
+              '${_cleanError(_pageError)}',
+              style: TextStyle(
+                color: Colors.red.shade600,
+                fontSize: 11,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
   PreferredSizeWidget _buildAppBar() {
     return PreferredSize(
-      preferredSize: const Size.fromHeight(60.0),
+      preferredSize: const Size.fromHeight(60),
       child: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -987,7 +1596,7 @@ class _BatchListPageState extends State<BatchListPage> {
                 Color(0xFF038E1B),
                 Color(0xFF84E977),
               ],
-              stops: [0.0, 0.5, 1.0],
+              stops: [0, 0.5, 1],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -1000,33 +1609,44 @@ class _BatchListPageState extends State<BatchListPage> {
     );
   }
 
-  Widget _buildPageContent() {
-    if (_isLoading && _batches.isEmpty) {
-      return _buildLoadingState();
-    }
-
-    if (_error != null && _batches.isEmpty) {
-      return _buildErrorState(_error);
-    }
-
+  Widget _buildPageContent(
+    List<BatchProductFilterOption> productOptions,
+  ) {
     return SafeArea(
       child: SingleChildScrollView(
-        key: const PageStorageKey<String>('batch_list_scroll'),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        key: const PageStorageKey(
+          'batch_list_scroll',
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 24,
+        ),
         physics: const ClampingScrollPhysics(),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 620),
+            constraints: const BoxConstraints(
+              maxWidth: 620,
+            ),
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.black12, width: 1),
+                borderRadius: BorderRadius.circular(
+                  18,
+                ),
+                border: Border.all(
+                  color: Colors.black12,
+                  width: 1,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withOpacity(
+                      0.05,
+                    ),
                     blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    offset: const Offset(
+                      0,
+                      4,
+                    ),
                   ),
                 ],
               ),
@@ -1037,106 +1657,16 @@ class _BatchListPageState extends State<BatchListPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildSummaryCard(_batches),
-                  const SizedBox(height: 24),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Data Batch',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              'Data batch dimuat bertahap agar halaman lebih ringan.',
-                              style: TextStyle(
-                                color: Colors.black54,
-                                fontSize: 11,
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      InkWell(
-                        onTap: _showFilterBottomSheet,
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFC8E6C9).withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: Colors.green.shade300,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.filter_alt_outlined,
-                                size: 16,
-                                color: Colors.green.shade800,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Filter',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green.shade900,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+                  _buildFilterCard(
+                    productOptions,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _getFilterDescription(),
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w500,
-                    ),
+                  const SizedBox(
+                    height: 26,
                   ),
-                  const SizedBox(height: 12),
-                  if (_batches.isEmpty)
-                    _buildEmptyFilterState()
-                  else ...[
-                    ..._batches.map(
-                      (batch) => _buildBatchCard(
-                        context: context,
-                        batch: batch,
-                      ),
-                    ),
-                    _buildLoadMoreButton(),
-                  ],
-                  if (_error != null && _batches.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        'Sebagian data gagal dimuat: $_error',
-                        style: TextStyle(
-                          color: Colors.red.shade600,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 12),
+                  if (_isActiveStatus)
+                    _buildActiveDataSection()
+                  else
+                    _buildPagedDataSection(),
                 ],
               ),
             ),
@@ -1151,7 +1681,33 @@ class _BatchListPageState extends State<BatchListPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFFAFAFA),
       appBar: _buildAppBar(),
-      body: _buildPageContent(),
+      body: FutureBuilder<List<BatchProductFilterOption>>(
+        future: _productOptionsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return _buildLoadingState(
+              'Memuat daftar produk...',
+            );
+          }
+
+          if (snapshot.hasError) {
+            return Padding(
+              padding: const EdgeInsets.all(
+                16,
+              ),
+              child: _buildErrorState(
+                error: snapshot.error,
+                onRetry: _reloadProductOptions,
+              ),
+            );
+          }
+
+          return _buildPageContent(
+            snapshot.data ?? <BatchProductFilterOption>[],
+          );
+        },
+      ),
     );
   }
 }

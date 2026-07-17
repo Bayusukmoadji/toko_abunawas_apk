@@ -15,6 +15,18 @@ class BatchPageResult {
   });
 }
 
+class BatchProductFilterOption {
+  final String id;
+  final String name;
+  final String code;
+
+  const BatchProductFilterOption({
+    required this.id,
+    required this.name,
+    required this.code,
+  });
+}
+
 class _LocationOccupancy {
   final String batchId;
   final String batchCode;
@@ -92,6 +104,10 @@ class BatchRepository {
     ];
   }
 
+  static const int _maximumSearchPrefixLength = 24;
+  static const int _maximumSearchKeywordLength = 250;
+  static const int _maximumNotesSearchWords = 30;
+
   CollectionReference<Map<String, dynamic>> get _batchesCollection {
     return _firestore.collection('batches');
   }
@@ -118,6 +134,285 @@ class BatchRepository {
 
   CollectionReference<Map<String, dynamic>> get _storageLocationsCollection {
     return _firestore.collection('storage_locations');
+  }
+
+  static String normalizeSearchKeyword(String value) {
+    return value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static void _addKeyword(
+    Set<String> keywords,
+    dynamic value,
+  ) {
+    final normalized = normalizeSearchKeyword(
+      value?.toString() ?? '',
+    );
+
+    if (normalized.isEmpty || normalized.length > _maximumSearchKeywordLength) {
+      return;
+    }
+
+    keywords.add(normalized);
+  }
+
+  static void _addSearchValue(
+    Set<String> keywords,
+    dynamic value, {
+    bool includeWholeValue = true,
+    bool includeCompactValue = true,
+    bool includePrefixes = true,
+    int maximumWords = 30,
+  }) {
+    final normalized = normalizeSearchKeyword(
+      value?.toString() ?? '',
+    );
+
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    final words = normalized
+        .split(' ')
+        .where((word) => word.isNotEmpty)
+        .take(maximumWords)
+        .toList();
+
+    if (includeWholeValue) {
+      _addKeyword(keywords, normalized);
+    }
+
+    if (includeCompactValue) {
+      final compactValue = normalized.replaceAll(' ', '');
+
+      if (compactValue.length >= 2) {
+        _addKeyword(keywords, compactValue);
+      }
+    }
+
+    for (final word in words) {
+      _addKeyword(keywords, word);
+
+      if (!includePrefixes || word.length < 2) {
+        continue;
+      }
+
+      final maximumPrefixLength = word.length < _maximumSearchPrefixLength
+          ? word.length
+          : _maximumSearchPrefixLength;
+
+      for (var length = 2; length <= maximumPrefixLength; length++) {
+        _addKeyword(
+          keywords,
+          word.substring(0, length),
+        );
+      }
+    }
+  }
+
+  static String _indonesianMonthName(int month) {
+    const names = [
+      'januari',
+      'februari',
+      'maret',
+      'april',
+      'mei',
+      'juni',
+      'juli',
+      'agustus',
+      'september',
+      'oktober',
+      'november',
+      'desember',
+    ];
+
+    if (month < 1 || month > 12) {
+      return '';
+    }
+
+    return names[month - 1];
+  }
+
+  static List<String> buildSearchKeywords({
+    required String batchId,
+    required String batchCode,
+    required String qrCodeValue,
+    required String productId,
+    required String productName,
+    required String productCode,
+    required String storageLocation,
+    required String createdBy,
+    required String createdByName,
+    required String unit,
+    required String status,
+    required int initialQty,
+    required int remainingQty,
+    required DateTime receivedAt,
+    required String notes,
+  }) {
+    final keywords = <String>{};
+
+    final mainValues = <dynamic>[
+      batchId,
+      batchCode,
+      qrCodeValue,
+      productId,
+      productName,
+      productCode,
+      storageLocation,
+      createdBy,
+      createdByName,
+      unit,
+      initialQty,
+      remainingQty,
+      '$initialQty $unit',
+      '$remainingQty $unit',
+      '$remainingQty dari $initialQty $unit',
+    ];
+
+    for (final value in mainValues) {
+      _addSearchValue(
+        keywords,
+        value,
+      );
+    }
+
+    final normalizedStatus = normalizeSearchKeyword(
+      status,
+    );
+
+    if (normalizedStatus == 'active' && remainingQty > 0) {
+      for (final value in const [
+        'active',
+        'aktif',
+        'batch aktif',
+      ]) {
+        _addSearchValue(
+          keywords,
+          value,
+        );
+      }
+    } else if (const {
+          'empty',
+          'depleted',
+          'inactive',
+        }.contains(normalizedStatus) ||
+        remainingQty <= 0) {
+      for (final value in const [
+        'empty',
+        'depleted',
+        'inactive',
+        'habis',
+        'tidak aktif',
+        'batch habis',
+      ]) {
+        _addSearchValue(
+          keywords,
+          value,
+        );
+      }
+    } else {
+      _addSearchValue(
+        keywords,
+        normalizedStatus,
+      );
+    }
+
+    final localDate = receivedAt.toLocal();
+    final day = localDate.day.toString().padLeft(2, '0');
+    final month = localDate.month.toString().padLeft(2, '0');
+    final year = localDate.year.toString();
+    final monthName = _indonesianMonthName(
+      localDate.month,
+    );
+
+    for (final value in [
+      '$day/$month/$year',
+      '$day-$month-$year',
+      '$year-$month-$day',
+      '$year/$month/$day',
+      '${localDate.day} $monthName $year',
+      '$day $monthName $year',
+      monthName,
+      year,
+    ]) {
+      _addSearchValue(
+        keywords,
+        value,
+      );
+    }
+
+    _addSearchValue(
+      keywords,
+      notes,
+      includeCompactValue: false,
+      maximumWords: _maximumNotesSearchWords,
+    );
+
+    final result = keywords
+        .where(
+          (keyword) =>
+              keyword.isNotEmpty &&
+              keyword.length <= _maximumSearchKeywordLength,
+        )
+        .toList()
+      ..sort();
+
+    return result;
+  }
+
+  static List<String> buildSearchKeywordsFromMap({
+    required String documentId,
+    required Map<String, dynamic> data,
+    String? overrideStorageLocation,
+    String? overrideStatus,
+    int? overrideRemainingQty,
+  }) {
+    final receivedAtRaw = data['receivedAt'];
+
+    final receivedAt = receivedAtRaw is Timestamp
+        ? receivedAtRaw.toDate()
+        : receivedAtRaw is DateTime
+            ? receivedAtRaw
+            : DateTime.fromMillisecondsSinceEpoch(0);
+
+    final initialQty = data['initialQty'] is num
+        ? (data['initialQty'] as num).toInt()
+        : int.tryParse(
+              data['initialQty']?.toString() ?? '',
+            ) ??
+            0;
+
+    final remainingQty = overrideRemainingQty ??
+        (data['remainingQty'] is num
+            ? (data['remainingQty'] as num).toInt()
+            : int.tryParse(
+                  data['remainingQty']?.toString() ?? '',
+                ) ??
+                0);
+
+    return buildSearchKeywords(
+      batchId: (data['id'] ?? documentId).toString(),
+      batchCode: (data['batchCode'] ?? documentId).toString(),
+      qrCodeValue: (data['qrCodeValue'] ?? documentId).toString(),
+      productId: (data['productId'] ?? '').toString(),
+      productName: (data['productName'] ?? '').toString(),
+      productCode: (data['productCode'] ?? '').toString(),
+      storageLocation:
+          overrideStorageLocation ?? (data['storageLocation'] ?? '').toString(),
+      createdBy: (data['createdBy'] ?? '').toString(),
+      createdByName: (data['createdByName'] ?? '').toString(),
+      unit: (data['unit'] ?? 'karung').toString(),
+      status: overrideStatus ?? (data['status'] ?? '').toString(),
+      initialQty: initialQty,
+      remainingQty: remainingQty,
+      receivedAt: receivedAt,
+      notes: (data['notes'] ?? '').toString(),
+    );
   }
 
   String _formatDateKey(DateTime date) {
@@ -177,8 +472,12 @@ class BatchRepository {
     required int sequenceNumber,
   }) {
     final dateKey = _formatDateKey(receivedAt);
-    final cleanProductCode = _normalizeProductCode(productCode);
-    final sequence = _formatSequence(sequenceNumber);
+    final cleanProductCode = _normalizeProductCode(
+      productCode,
+    );
+    final sequence = _formatSequence(
+      sequenceNumber,
+    );
 
     return 'BATCH-$dateKey-$cleanProductCode-$sequence';
   }
@@ -190,7 +489,10 @@ class BatchRepository {
       return 0;
     }
 
-    return int.tryParse(parts.last.trim()) ?? 0;
+    return int.tryParse(
+          parts.last.trim(),
+        ) ??
+        0;
   }
 
   String _getBatchCodeForFifo(BatchModel batch) {
@@ -207,33 +509,47 @@ class BatchRepository {
     BatchModel first,
     BatchModel second,
   ) {
-    final receivedAtComparison = first.receivedAt.compareTo(second.receivedAt);
+    final receivedAtComparison = first.receivedAt.compareTo(
+      second.receivedAt,
+    );
 
     if (receivedAtComparison != 0) {
       return receivedAtComparison;
     }
 
-    final createdAtComparison = first.createdAt.compareTo(second.createdAt);
+    final createdAtComparison = first.createdAt.compareTo(
+      second.createdAt,
+    );
 
     if (createdAtComparison != 0) {
       return createdAtComparison;
     }
 
-    final firstBatchCode = _getBatchCodeForFifo(first);
+    final firstBatchCode = _getBatchCodeForFifo(
+      first,
+    );
+    final secondBatchCode = _getBatchCodeForFifo(
+      second,
+    );
 
-    final secondBatchCode = _getBatchCodeForFifo(second);
-
-    final firstSequence = _extractSequenceFromBatchCode(firstBatchCode);
-
-    final secondSequence = _extractSequenceFromBatchCode(secondBatchCode);
+    final firstSequence = _extractSequenceFromBatchCode(
+      firstBatchCode,
+    );
+    final secondSequence = _extractSequenceFromBatchCode(
+      secondBatchCode,
+    );
 
     if (firstSequence > 0 &&
         secondSequence > 0 &&
         firstSequence != secondSequence) {
-      return firstSequence.compareTo(secondSequence);
+      return firstSequence.compareTo(
+        secondSequence,
+      );
     }
 
-    final batchCodeComparison = firstBatchCode.compareTo(secondBatchCode);
+    final batchCodeComparison = firstBatchCode.compareTo(
+      secondBatchCode,
+    );
 
     if (batchCodeComparison != 0) {
       return batchCodeComparison;
@@ -249,7 +565,10 @@ class BatchRepository {
       return value.toInt();
     }
 
-    return int.tryParse(value?.toString() ?? '') ?? 0;
+    return int.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0;
   }
 
   bool _isBatchEligibleForFifo(
@@ -260,7 +579,9 @@ class BatchRepository {
     return normalizedStatus == 'active' && batch.remainingQty > 0;
   }
 
-  bool _isBatchDataActive(Map<String, dynamic> data) {
+  bool _isBatchDataActive(
+    Map<String, dynamic> data,
+  ) {
     final status = (data['status'] ?? '').toString().toLowerCase().trim();
 
     final remainingQty = _parseInt(
@@ -283,9 +604,13 @@ class BatchRepository {
   }
 
   bool _isValidStorageLocation(String location) {
-    final normalized = _normalizeLocation(location);
+    final normalized = _normalizeLocation(
+      location,
+    );
 
-    return allStorageLocations.contains(normalized);
+    return allStorageLocations.contains(
+      normalized,
+    );
   }
 
   String _resolveUserName({
@@ -380,13 +705,21 @@ class BatchRepository {
 
     if (expected == null) {
       return existingData['isOccupied'] == false &&
-          _getLockedBatchId(existingData).isEmpty &&
-          _parseInt(existingData['remainingQty']) == 0;
+          _getLockedBatchId(
+            existingData,
+          ).isEmpty &&
+          _parseInt(
+                existingData['remainingQty'],
+              ) ==
+              0;
     }
 
     return existingData['isOccupied'] == true &&
         _getLockedBatchId(existingData) == expected.batchId &&
-        _parseInt(existingData['remainingQty']) == expected.remainingQty;
+        _parseInt(
+              existingData['remainingQty'],
+            ) ==
+            expected.remainingQty;
   }
 
   bool isMainStorageLocation(String location) {
@@ -436,8 +769,8 @@ class BatchRepository {
 
       if (!_isValidStorageLocation(location)) {
         throw Exception(
-          'Batch aktif ${document.id} memiliki lokasi tidak valid: '
-          '$location.',
+          'Batch aktif ${document.id} memiliki lokasi '
+          'tidak valid: $location.',
         );
       }
 
@@ -446,8 +779,9 @@ class BatchRepository {
       if (existingOccupancy != null &&
           existingOccupancy.batchId != document.id) {
         throw Exception(
-          'Ditemukan dua batch aktif pada lokasi $location: '
-          '${existingOccupancy.batchId} dan ${document.id}.',
+          'Ditemukan dua batch aktif pada lokasi '
+          '$location: ${existingOccupancy.batchId} '
+          'dan ${document.id}.',
         );
       }
 
@@ -493,7 +827,9 @@ class BatchRepository {
         continue;
       }
 
-      final locationRef = _storageLocationsCollection.doc(location);
+      final locationRef = _storageLocationsCollection.doc(
+        location,
+      );
 
       if (expected == null) {
         writeBatch.set(
@@ -548,7 +884,9 @@ class BatchRepository {
 
       final batchCode = (data['batchCode'] ?? document.id).toString();
 
-      final sequence = _extractSequenceFromBatchCode(batchCode);
+      final sequence = _extractSequenceFromBatchCode(
+        batchCode,
+      );
 
       if (sequence > maxSequence) {
         maxSequence = sequence;
@@ -591,9 +929,39 @@ class BatchRepository {
 
     final occupiedLocations = await getOccupiedStorageLocations();
 
-    return mainStorageLocations.where((location) {
-      return !occupiedLocations.contains(location);
+    return mainStorageLocations
+        .where(
+          (location) => !occupiedLocations.contains(
+            location,
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<BatchProductFilterOption>> getBatchProductFilterOptions() async {
+    final snapshot = await _productsCollection.get();
+
+    final options = snapshot.docs.map((document) {
+      final data = document.data();
+
+      final name = (data['name'] ?? '').toString().trim();
+
+      final code = (data['code'] ?? '').toString().trim();
+
+      return BatchProductFilterOption(
+        id: document.id,
+        name: name.isEmpty ? 'Produk Tanpa Nama' : name,
+        code: code,
+      );
     }).toList();
+
+    options.sort(
+      (first, second) => first.name.toLowerCase().compareTo(
+            second.name.toLowerCase(),
+          ),
+    );
+
+    return options;
   }
 
   Future<Map<String, String>> createBatch({
@@ -610,13 +978,17 @@ class BatchRepository {
   }) async {
     final cleanProductId = productId.trim();
 
-    final cleanInputProductCode = _normalizeProductCode(productCode);
+    final cleanInputProductCode = _normalizeProductCode(
+      productCode,
+    );
 
     final cleanInputProductName = productName.trim();
 
     final cleanInputUnit = unit.trim();
 
-    final cleanLocation = _normalizeLocation(storageLocation);
+    final cleanLocation = _normalizeLocation(
+      storageLocation,
+    );
 
     final cleanCreatedBy = createdBy.trim();
 
@@ -628,20 +1000,27 @@ class BatchRepository {
 
     if (_isFutureDate(cleanReceivedAt)) {
       throw Exception(
-        'Tanggal masuk tidak boleh melebihi tanggal hari ini.',
+        'Tanggal masuk tidak boleh melebihi '
+        'tanggal hari ini.',
       );
     }
 
     if (cleanProductId.isEmpty) {
-      throw Exception('Product ID tidak valid.');
+      throw Exception(
+        'Product ID tidak valid.',
+      );
     }
 
     if (cleanInputProductCode.isEmpty) {
-      throw Exception('Kode produk tidak valid.');
+      throw Exception(
+        'Kode produk tidak valid.',
+      );
     }
 
     if (cleanInputProductName.isEmpty) {
-      throw Exception('Nama produk tidak valid.');
+      throw Exception(
+        'Nama produk tidak valid.',
+      );
     }
 
     if (qty <= 0) {
@@ -651,28 +1030,38 @@ class BatchRepository {
     }
 
     if (cleanInputUnit.isEmpty) {
-      throw Exception('Satuan produk tidak valid.');
+      throw Exception(
+        'Satuan produk tidak valid.',
+      );
     }
 
-    if (!_isValidStorageLocation(cleanLocation)) {
+    if (!_isValidStorageLocation(
+      cleanLocation,
+    )) {
       throw Exception(
-        'Lokasi penyimpanan $cleanLocation tidak valid.',
+        'Lokasi penyimpanan $cleanLocation '
+        'tidak valid.',
       );
     }
 
     if (cleanCreatedBy.isEmpty) {
-      throw Exception('Data pengguna tidak valid.');
+      throw Exception(
+        'Data pengguna tidak valid.',
+      );
     }
 
     await synchronizeStorageLocationLocks(
       force: true,
     );
 
-    final counterId = 'batch_sequence_${_normalizeCounterId(cleanProductId)}';
+    final counterId = 'batch_sequence_'
+        '${_normalizeCounterId(cleanProductId)}';
 
     final counterRef = _countersCollection.doc(counterId);
 
-    final productRef = _productsCollection.doc(cleanProductId);
+    final productRef = _productsCollection.doc(
+      cleanProductId,
+    );
 
     final locationRef = _storageLocationsCollection.doc(
       cleanLocation,
@@ -684,14 +1073,22 @@ class BatchRepository {
 
     return _firestore.runTransaction<Map<String, String>>(
       (transaction) async {
-        final counterSnapshot = await transaction.get(counterRef);
+        final counterSnapshot = await transaction.get(
+          counterRef,
+        );
 
-        final productSnapshot = await transaction.get(productRef);
+        final productSnapshot = await transaction.get(
+          productRef,
+        );
 
-        final locationSnapshot = await transaction.get(locationRef);
+        final locationSnapshot = await transaction.get(
+          locationRef,
+        );
 
         if (!productSnapshot.exists || productSnapshot.data() == null) {
-          throw Exception('Produk tidak ditemukan.');
+          throw Exception(
+            'Produk tidak ditemukan.',
+          );
         }
 
         final productData = productSnapshot.data()!;
@@ -702,18 +1099,24 @@ class BatchRepository {
 
         if (!isProductActive || isProductDeleted) {
           throw Exception(
-            'Produk sudah tidak aktif dan tidak dapat digunakan.',
+            'Produk sudah tidak aktif dan '
+            'tidak dapat digunakan.',
           );
         }
 
         final locationData = locationSnapshot.data();
 
-        if (_isLocationLockOccupied(locationData)) {
-          final lockedBatchId = _getLockedBatchId(locationData);
+        if (_isLocationLockOccupied(
+          locationData,
+        )) {
+          final lockedBatchId = _getLockedBatchId(
+            locationData,
+          );
 
           throw Exception(
-            'Lokasi $cleanLocation baru saja digunakan '
-            'oleh batch $lockedBatchId. Pilih lokasi lain.',
+            'Lokasi $cleanLocation baru saja '
+            'digunakan oleh batch '
+            '$lockedBatchId. Pilih lokasi lain.',
           );
         }
 
@@ -729,19 +1132,22 @@ class BatchRepository {
 
         if (storedProductCode.isEmpty) {
           throw Exception(
-            'Kode produk pada database tidak valid.',
+            'Kode produk pada database '
+            'tidak valid.',
           );
         }
 
         if (storedProductName.isEmpty) {
           throw Exception(
-            'Nama produk pada database tidak valid.',
+            'Nama produk pada database '
+            'tidak valid.',
           );
         }
 
         if (storedUnit.isEmpty) {
           throw Exception(
-            'Satuan produk pada database tidak valid.',
+            'Satuan produk pada database '
+            'tidak valid.',
           );
         }
 
@@ -765,13 +1171,17 @@ class BatchRepository {
           sequenceNumber: nextNumber,
         );
 
-        final batchRef = _batchesCollection.doc(batchCode);
+        final batchRef = _batchesCollection.doc(
+          batchCode,
+        );
 
         final stockInTransactionRef = _transactionsCollection.doc(
           'STOCK-IN-$batchCode',
         );
 
-        final existingBatchSnapshot = await transaction.get(batchRef);
+        final existingBatchSnapshot = await transaction.get(
+          batchRef,
+        );
 
         if (existingBatchSnapshot.exists) {
           throw Exception(
@@ -781,6 +1191,24 @@ class BatchRepository {
         }
 
         final now = Timestamp.now();
+
+        final searchKeywords = buildSearchKeywords(
+          batchId: batchCode,
+          batchCode: batchCode,
+          qrCodeValue: batchCode,
+          productId: cleanProductId,
+          productName: storedProductName,
+          productCode: storedProductCode,
+          storageLocation: cleanLocation,
+          createdBy: cleanCreatedBy,
+          createdByName: cleanCreatedByName,
+          unit: storedUnit,
+          status: 'active',
+          initialQty: qty,
+          remainingQty: qty,
+          receivedAt: cleanReceivedAt,
+          notes: cleanNotes,
+        );
 
         transaction.set(
           counterRef,
@@ -802,7 +1230,9 @@ class BatchRepository {
             'productName': storedProductName,
             'productCode': storedProductCode,
             'batchCode': batchCode,
-            'receivedAt': Timestamp.fromDate(cleanReceivedAt),
+            'receivedAt': Timestamp.fromDate(
+              cleanReceivedAt,
+            ),
             'initialQty': qty,
             'remainingQty': qty,
             'unit': storedUnit,
@@ -812,6 +1242,7 @@ class BatchRepository {
             'createdBy': cleanCreatedBy,
             'createdByName': cleanCreatedByName,
             'notes': cleanNotes,
+            'searchKeywords': searchKeywords,
             'createdAt': now,
             'updatedAt': now,
           },
@@ -874,17 +1305,22 @@ class BatchRepository {
   }) async {
     final cleanBatchId = batchId.trim();
 
-    final cleanTargetLocation = _normalizeLocation(targetLocation);
+    final cleanTargetLocation = _normalizeLocation(
+      targetLocation,
+    );
 
     if (cleanBatchId.isEmpty) {
-      throw Exception('ID batch tidak valid.');
+      throw Exception(
+        'ID batch tidak valid.',
+      );
     }
 
     if (!isMainStorageLocation(
       cleanTargetLocation,
     )) {
       throw Exception(
-        'Lokasi tujuan harus berada di dalam gudang.',
+        'Lokasi tujuan harus berada '
+        'di dalam gudang.',
       );
     }
 
@@ -901,20 +1337,30 @@ class BatchRepository {
       force: true,
     );
 
-    final batchRef = _batchesCollection.doc(cleanBatchId);
+    final batchRef = _batchesCollection.doc(
+      cleanBatchId,
+    );
 
-    final userRef = _usersCollection.doc(authUser.uid);
+    final userRef = _usersCollection.doc(
+      authUser.uid,
+    );
 
     final movementRef = _batchMovementsCollection.doc();
 
     await _firestore.runTransaction<void>(
       (transaction) async {
-        final batchSnapshot = await transaction.get(batchRef);
+        final batchSnapshot = await transaction.get(
+          batchRef,
+        );
 
-        final userSnapshot = await transaction.get(userRef);
+        final userSnapshot = await transaction.get(
+          userRef,
+        );
 
         if (!batchSnapshot.exists || batchSnapshot.data() == null) {
-          throw Exception('Batch tidak ditemukan.');
+          throw Exception(
+            'Batch tidak ditemukan.',
+          );
         }
 
         final batchData = batchSnapshot.data()!;
@@ -932,7 +1378,8 @@ class BatchRepository {
 
         if (currentStatus != 'active' || currentRemainingQty <= 0) {
           throw Exception(
-            'Batch sudah tidak aktif atau stoknya telah habis.',
+            'Batch sudah tidak aktif atau '
+            'stoknya telah habis.',
           );
         }
 
@@ -940,8 +1387,8 @@ class BatchRepository {
           currentLocation,
         )) {
           throw Exception(
-            'Batch hanya dapat dipindahkan apabila '
-            'berada di lokasi X1-X5.',
+            'Batch hanya dapat dipindahkan '
+            'apabila berada di lokasi X1-X5.',
           );
         }
 
@@ -968,29 +1415,34 @@ class BatchRepository {
         if (!_isLocationLockOccupied(
               sourceLockData,
             ) ||
-            _getLockedBatchId(sourceLockData) != cleanBatchId) {
+            _getLockedBatchId(
+                  sourceLockData,
+                ) !=
+                cleanBatchId) {
           throw Exception(
-            'Data lokasi asal $currentLocation '
-            'tidak sesuai dengan batch ini.',
+            'Data lokasi asal '
+            '$currentLocation tidak sesuai '
+            'dengan batch ini.',
           );
         }
 
         if (_isLocationLockOccupied(
           targetLockData,
         )) {
-          final lockedBatchId = _getLockedBatchId(targetLockData);
+          final lockedBatchId = _getLockedBatchId(
+            targetLockData,
+          );
 
           throw Exception(
-            'Lokasi $cleanTargetLocation baru saja '
-            'digunakan oleh batch $lockedBatchId.',
+            'Lokasi $cleanTargetLocation '
+            'baru saja digunakan oleh batch '
+            '$lockedBatchId.',
           );
         }
 
-        final userData = userSnapshot.data();
-
         final movedByName = _resolveUserName(
           authUser: authUser,
-          userData: userData,
+          userData: userSnapshot.data(),
         );
 
         final batchCode =
@@ -1004,10 +1456,17 @@ class BatchRepository {
 
         final now = Timestamp.now();
 
+        final updatedSearchKeywords = buildSearchKeywordsFromMap(
+          documentId: cleanBatchId,
+          data: batchData,
+          overrideStorageLocation: cleanTargetLocation,
+        );
+
         transaction.update(
           batchRef,
           {
             'storageLocation': cleanTargetLocation,
+            'searchKeywords': updatedSearchKeywords,
             'updatedAt': now,
             'lastLocationTransferAt': now,
             'lastLocationTransferBy': authUser.uid,
@@ -1075,38 +1534,38 @@ class BatchRepository {
         .snapshots()
         .map(
       (snapshot) {
-        return snapshot.docs.map(
-          (document) {
-            return BatchModel.fromMap(
-              document.id,
-              document.data(),
-            );
-          },
-        ).toList();
+        return snapshot.docs
+            .map(
+              (document) => BatchModel.fromMap(
+                document.id,
+                document.data(),
+              ),
+            )
+            .toList();
       },
     );
   }
 
-  Future<BatchPageResult> getBatchesPage({
-    String statusFilter = 'Aktif',
+  Stream<List<BatchModel>> getActiveBatchesStream({
+    String? productId,
     DateTime? receivedDate,
-    int limit = 30,
-    DocumentSnapshot<Map<String, dynamic>>? startAfterDocument,
-  }) async {
-    Query<Map<String, dynamic>> query = _batchesCollection;
+    String searchQuery = '',
+  }) {
+    Query<Map<String, dynamic>> query = _batchesCollection.where(
+      'status',
+      isEqualTo: 'active',
+    );
 
-    if (statusFilter == 'Aktif') {
+    final cleanProductId = productId?.trim() ?? '';
+
+    final cleanSearchKeyword = normalizeSearchKeyword(
+      searchQuery,
+    );
+
+    if (cleanProductId.isNotEmpty) {
       query = query.where(
-        'status',
-        isEqualTo: 'active',
-      );
-    } else if (statusFilter == 'Habis') {
-      query = query.where(
-        'status',
-        whereIn: [
-          'empty',
-          'depleted',
-        ],
+        'productId',
+        isEqualTo: cleanProductId,
       );
     }
 
@@ -1117,25 +1576,152 @@ class BatchRepository {
         receivedDate.day,
       );
 
-      final endDate = DateTime(
-        receivedDate.year,
-        receivedDate.month,
-        receivedDate.day,
-        23,
-        59,
-        59,
-        999,
+      final endDate = startDate.add(
+        const Duration(days: 1),
       );
 
       query = query
           .where(
             'receivedAt',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
+            isGreaterThanOrEqualTo: Timestamp.fromDate(
+              startDate,
+            ),
           )
           .where(
             'receivedAt',
-            isLessThanOrEqualTo: Timestamp.fromDate(endDate),
+            isLessThan: Timestamp.fromDate(
+              endDate,
+            ),
           );
+    }
+
+    if (cleanSearchKeyword.isNotEmpty) {
+      query = query.where(
+        'searchKeywords',
+        arrayContains: cleanSearchKeyword,
+      );
+    }
+
+    return query.snapshots().map(
+      (snapshot) {
+        final batches = snapshot.docs
+            .map(
+              (document) => BatchModel.fromMap(
+                document.id,
+                document.data(),
+              ),
+            )
+            .where(
+              (batch) => batch.remainingQty > 0,
+            )
+            .toList();
+
+        batches.sort(
+          (first, second) {
+            final receivedAtComparison = second.receivedAt.compareTo(
+              first.receivedAt,
+            );
+
+            if (receivedAtComparison != 0) {
+              return receivedAtComparison;
+            }
+
+            final createdAtComparison = second.createdAt.compareTo(
+              first.createdAt,
+            );
+
+            if (createdAtComparison != 0) {
+              return createdAtComparison;
+            }
+
+            return second.batchCode.toUpperCase().compareTo(
+                  first.batchCode.toUpperCase(),
+                );
+          },
+        );
+
+        return batches;
+      },
+    );
+  }
+
+  Future<BatchPageResult> getBatchesPage({
+    String statusFilter = 'Habis',
+    String? productId,
+    DateTime? receivedDate,
+    String searchQuery = '',
+    int limit = 20,
+    DocumentSnapshot<Map<String, dynamic>>? startAfterDocument,
+  }) async {
+    final cleanStatusFilter = statusFilter.trim().toLowerCase();
+
+    final cleanProductId = productId?.trim() ?? '';
+
+    final cleanSearchKeyword = normalizeSearchKeyword(
+      searchQuery,
+    );
+
+    if (limit <= 0) {
+      throw Exception(
+        'Batas data harus lebih dari 0.',
+      );
+    }
+
+    Query<Map<String, dynamic>> query = _batchesCollection;
+
+    if (cleanStatusFilter == 'aktif') {
+      query = query.where(
+        'status',
+        isEqualTo: 'active',
+      );
+    } else if (cleanStatusFilter == 'habis') {
+      query = query.where(
+        'status',
+        whereIn: const [
+          'empty',
+          'depleted',
+        ],
+      );
+    }
+
+    if (cleanProductId.isNotEmpty) {
+      query = query.where(
+        'productId',
+        isEqualTo: cleanProductId,
+      );
+    }
+
+    if (receivedDate != null) {
+      final startDate = DateTime(
+        receivedDate.year,
+        receivedDate.month,
+        receivedDate.day,
+      );
+
+      final endDate = startDate.add(
+        const Duration(days: 1),
+      );
+
+      query = query
+          .where(
+            'receivedAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(
+              startDate,
+            ),
+          )
+          .where(
+            'receivedAt',
+            isLessThan: Timestamp.fromDate(
+              endDate,
+            ),
+          );
+    }
+
+    if (cleanSearchKeyword.isNotEmpty) {
+      query = query.where(
+        'searchKeywords',
+        arrayContains: cleanSearchKeyword,
+      );
     }
 
     query = query
@@ -1143,7 +1729,7 @@ class BatchRepository {
           'receivedAt',
           descending: true,
         )
-        .limit(limit);
+        .limit(limit + 1);
 
     if (startAfterDocument != null) {
       query = query.startAfterDocument(
@@ -1153,19 +1739,24 @@ class BatchRepository {
 
     final snapshot = await query.get();
 
-    final batches = snapshot.docs.map(
-      (document) {
-        return BatchModel.fromMap(
-          document.id,
-          document.data(),
-        );
-      },
-    ).toList();
+    final hasMore = snapshot.docs.length > limit;
+
+    final visibleDocuments =
+        hasMore ? snapshot.docs.take(limit).toList() : snapshot.docs;
+
+    final batches = visibleDocuments
+        .map(
+          (document) => BatchModel.fromMap(
+            document.id,
+            document.data(),
+          ),
+        )
+        .toList();
 
     return BatchPageResult(
       batches: batches,
-      lastDocument: snapshot.docs.isEmpty ? null : snapshot.docs.last,
-      hasMore: snapshot.docs.length == limit,
+      lastDocument: visibleDocuments.isEmpty ? null : visibleDocuments.last,
+      hasMore: hasMore,
     );
   }
 
@@ -1262,14 +1853,18 @@ class BatchRepository {
             document.data(),
           ),
         )
-        .where(_isBatchEligibleForFifo)
+        .where(
+          _isBatchEligibleForFifo,
+        )
         .toList();
 
     if (batches.isEmpty) {
       return null;
     }
 
-    batches.sort(_compareBatchesForFifo);
+    batches.sort(
+      _compareBatchesForFifo,
+    );
 
     return batches.first;
   }
@@ -1281,12 +1876,15 @@ class BatchRepository {
     final cleanBatchId = batchId.trim();
 
     if (cleanBatchId.isEmpty) {
-      throw Exception('ID batch tidak valid.');
+      throw Exception(
+        'ID batch tidak valid.',
+      );
     }
 
     if (qty <= 0) {
       throw Exception(
-        'Jumlah stok keluar harus lebih dari 0.',
+        'Jumlah stok keluar harus '
+        'lebih dari 0.',
       );
     }
 
@@ -1294,14 +1892,20 @@ class BatchRepository {
       force: true,
     );
 
-    final batchRef = _batchesCollection.doc(cleanBatchId);
+    final batchRef = _batchesCollection.doc(
+      cleanBatchId,
+    );
 
     await _firestore.runTransaction<void>(
       (transaction) async {
-        final batchSnapshot = await transaction.get(batchRef);
+        final batchSnapshot = await transaction.get(
+          batchRef,
+        );
 
         if (!batchSnapshot.exists || batchSnapshot.data() == null) {
-          throw Exception('Batch tidak ditemukan.');
+          throw Exception(
+            'Batch tidak ditemukan.',
+          );
         }
 
         final data = batchSnapshot.data()!;
@@ -1319,13 +1923,15 @@ class BatchRepository {
 
         if (currentStatus != 'active' || currentRemainingQty <= 0) {
           throw Exception(
-            'Batch sudah tidak aktif atau stoknya telah habis.',
+            'Batch sudah tidak aktif atau '
+            'stoknya telah habis.',
           );
         }
 
         if (currentRemainingQty < qty) {
           throw Exception(
-            'Jumlah keluar melebihi sisa stok batch.',
+            'Jumlah keluar melebihi '
+            'sisa stok batch.',
           );
         }
 
@@ -1333,7 +1939,8 @@ class BatchRepository {
           currentLocation,
         )) {
           throw Exception(
-            'Lokasi batch $currentLocation tidak valid.',
+            'Lokasi batch '
+            '$currentLocation tidak valid.',
           );
         }
 
@@ -1341,29 +1948,45 @@ class BatchRepository {
           currentLocation,
         );
 
-        final locationSnapshot = await transaction.get(locationRef);
+        final locationSnapshot = await transaction.get(
+          locationRef,
+        );
 
         final locationData = locationSnapshot.data();
 
         if (!_isLocationLockOccupied(
               locationData,
             ) ||
-            _getLockedBatchId(locationData) != cleanBatchId) {
+            _getLockedBatchId(
+                  locationData,
+                ) !=
+                cleanBatchId) {
           throw Exception(
-            'Data penguncian lokasi $currentLocation '
-            'tidak sesuai dengan batch.',
+            'Data penguncian lokasi '
+            '$currentLocation tidak sesuai '
+            'dengan batch.',
           );
         }
 
         final newRemainingQty = currentRemainingQty - qty;
 
+        final newStatus = newRemainingQty == 0 ? 'empty' : 'active';
+
         final now = Timestamp.now();
+
+        final updatedSearchKeywords = buildSearchKeywordsFromMap(
+          documentId: cleanBatchId,
+          data: data,
+          overrideStatus: newStatus,
+          overrideRemainingQty: newRemainingQty,
+        );
 
         transaction.update(
           batchRef,
           {
             'remainingQty': newRemainingQty,
-            'status': newRemainingQty == 0 ? 'empty' : 'active',
+            'status': newStatus,
+            'searchKeywords': updatedSearchKeywords,
             'updatedAt': now,
           },
         );

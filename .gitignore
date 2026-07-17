@@ -41,3 +41,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase Admin SDK private credentials
+firebase_import_python/serviceAccountKey*.json
+firebase_import_python/*firebase-adminsdk*.json

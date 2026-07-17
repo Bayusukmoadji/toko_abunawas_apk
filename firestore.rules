@@ -2,19 +2,11 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    /*
-     * ============================================================
-     * AUTENTIKASI DAN HAK AKSES
-     * ============================================================
-     */
-
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function hasCurrentUserDocument() {
-      return isSignedIn()
-        && exists(
+    functio:contentReference[oaicite:0]{index=0}ts(
           /databases/$(database)/documents/users/$(request.auth.uid)
         );
     }
@@ -30,32 +22,26 @@ service cloud.firestore {
         || role == 'pemilik';
     }
 
+    function currentUserData() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
     function isActiveUser() {
       return hasCurrentUserDocument()
-        && get(
-          /databases/$(database)/documents/users/$(request.auth.uid)
-        ).data.isActive == true
+        && currentUserData().isActive == true
         && isValidRole(
-          get(
-            /databases/$(database)/documents/users/$(request.auth.uid)
-          ).data.role
+          currentUserData().role
         );
     }
 
     function isOwner() {
       return isActiveUser()
         && isOwnerRole(
-          get(
-            /databases/$(database)/documents/users/$(request.auth.uid)
-          ).data.role
+          currentUserData().role
         );
     }
-
-    /*
-     * ============================================================
-     * LOKASI PENYIMPANAN
-     * ============================================================
-     */
 
     function isMainLocation(location) {
       return location is string
@@ -66,10 +52,14 @@ service cloud.firestore {
 
     function isBackupLocation(location) {
       return location is string
-        && location.matches('^X([1-5])$');
+        && location.matches(
+          '^X([1-5])$'
+        );
     }
 
-    function isValidStorageLocation(location) {
+    function isValidStorageLocation(
+      location
+    ) {
       return isMainLocation(location)
         || isBackupLocation(location);
     }
@@ -80,11 +70,11 @@ service cloud.firestore {
         : 'main';
     }
 
-    /*
-     * ============================================================
-     * USERS
-     * ============================================================
-     */
+    function isValidSearchKeywords(data) {
+      return data.searchKeywords is list
+        && data.searchKeywords.size() > 0
+        && data.searchKeywords.size() <= 1000;
+    }
 
     function isValidUserCreate(userId) {
       return request.resource.data.keys().hasAll([
@@ -110,7 +100,9 @@ service cloud.firestore {
         && request.resource.data.name.size() > 0
         && request.resource.data.email is string
         && request.resource.data.email.size() > 0
-        && isValidRole(request.resource.data.role)
+        && isValidRole(
+          request.resource.data.role
+        )
         && request.resource.data.isActive is bool
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp;
@@ -128,22 +120,27 @@ service cloud.firestore {
           'isActive',
           'updatedAt'
         ])
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.uid == userId
+        && request.resource.data.uid
+          == resource.data.uid
+        && request.resource.data.uid
+          == userId
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.email is string
         && request.resource.data.email.size() > 0
-        && isValidRole(request.resource.data.role)
+        && isValidRole(
+          request.resource.data.role
+        )
         && request.resource.data.isActive is bool
         && request.resource.data.updatedAt is timestamp
-
-        // Owner tidak boleh menonaktifkan atau menurunkan role sendiri.
         && (
           userId != request.auth.uid
           || (
-            isOwnerRole(request.resource.data.role)
-            && request.resource.data.isActive == true
+            isOwnerRole(
+              request.resource.data.role
+            )
+            && request.resource.data.isActive
+              == true
           )
         );
     }
@@ -167,14 +164,9 @@ service cloud.firestore {
         && userId != request.auth.uid;
     }
 
-    /*
-     * ============================================================
-     * PRODUCTS
-     * ============================================================
-     */
-
     function isValidProductCore(productId) {
-      return request.resource.data.id == productId
+      return request.resource.data.id
+          == productId
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.code is string
@@ -193,8 +185,12 @@ service cloud.firestore {
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp
         && (
-          !('deletedAt' in request.resource.data)
-          || request.resource.data.deletedAt is timestamp
+          !(
+            'deletedAt'
+            in request.resource.data
+          )
+          || request.resource.data.deletedAt
+            is timestamp
         );
     }
 
@@ -229,10 +225,13 @@ service cloud.firestore {
         ])
         && isValidProductCore(productId)
         && request.resource.data.totalStock == 0
-        && request.resource.data.isDeleted == false;
+        && request.resource.data.isDeleted
+          == false;
     }
 
-    function isOwnerProductManagementUpdate(productId) {
+    function isOwnerProductManagementUpdate(
+      productId
+    ) {
       let changedKeys = request.resource.data
         .diff(resource.data)
         .affectedKeys();
@@ -257,7 +256,9 @@ service cloud.firestore {
           == resource.data.createdAt;
     }
 
-    function isOperationalProductStockUpdate(productId) {
+    function isOperationalProductStockUpdate(
+      productId
+    ) {
       let changedKeys = request.resource.data
         .diff(resource.data)
         .affectedKeys();
@@ -267,11 +268,14 @@ service cloud.firestore {
           'totalStock',
           'updatedAt'
         ])
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.id == productId
+        && request.resource.data.id
+          == resource.data.id
+        && request.resource.data.id
+          == productId
         && request.resource.data.totalStock is int
         && request.resource.data.totalStock >= 0
-        && request.resource.data.updatedAt is timestamp;
+        && request.resource.data.updatedAt
+          is timestamp;
     }
 
     match /products/{productId} {
@@ -280,18 +284,17 @@ service cloud.firestore {
       allow create: if isOwner()
         && isValidProductCreate(productId);
 
-      allow update: if isOwnerProductManagementUpdate(productId)
-        || isOperationalProductStockUpdate(productId);
+      allow update:
+        if isOwnerProductManagementUpdate(
+          productId
+        )
+        || isOperationalProductStockUpdate(
+          productId
+        );
 
       allow delete: if isOwner()
         && resource.data.totalStock == 0;
     }
-
-    /*
-     * ============================================================
-     * BATCHES
-     * ============================================================
-     */
 
     function isValidBatchCreate(batchId) {
       let productBefore = get(
@@ -322,6 +325,7 @@ service cloud.firestore {
           'createdBy',
           'createdByName',
           'notes',
+          'searchKeywords',
           'createdAt',
           'updatedAt'
         ])
@@ -341,56 +345,67 @@ service cloud.firestore {
           'createdBy',
           'createdByName',
           'notes',
+          'searchKeywords',
           'createdAt',
           'updatedAt'
         ])
         && request.resource.data.id == batchId
-        && request.resource.data.batchCode == batchId
-        && request.resource.data.qrCodeValue == batchId
-        && request.resource.data.productId is string
-        && request.resource.data.productId.size() > 0
-        && request.resource.data.productName is string
-        && request.resource.data.productCode is string
+        && request.resource.data.batchCode
+          == batchId
+        && request.resource.data.qrCodeValue
+          == batchId
+        && request.resource.data.productId
+          is string
+        && request.resource.data.productId
+          .size() > 0
+        && request.resource.data.productName
+          is string
+        && request.resource.data.productCode
+          is string
         && request.resource.data.unit is string
         && request.resource.data.initialQty is int
         && request.resource.data.initialQty > 0
         && request.resource.data.remainingQty
           == request.resource.data.initialQty
-        && request.resource.data.status == 'active'
+        && request.resource.data.status
+          == 'active'
         && isValidStorageLocation(
           request.resource.data.storageLocation
         )
         && request.resource.data.createdBy
           == request.auth.uid
-        && request.resource.data.createdByName is string
+        && request.resource.data.createdByName
+          is string
         && request.resource.data.notes is string
-        && request.resource.data.receivedAt is timestamp
-        && request.resource.data.receivedAt <= request.time
-        && request.resource.data.createdAt is timestamp
-        && request.resource.data.updatedAt is timestamp
-
-        // Produk harus aktif dan bukan produk yang diarsipkan.
+        && isValidSearchKeywords(
+          request.resource.data
+        )
+        && request.resource.data.receivedAt
+          is timestamp
+        && request.resource.data.receivedAt
+          <= request.time
+        && request.resource.data.createdAt
+          is timestamp
+        && request.resource.data.updatedAt
+          is timestamp
         && productBefore.isActive == true
         && (
-          !('isDeleted' in productBefore)
+          !(
+            'isDeleted'
+            in productBefore
+          )
           || productBefore.isDeleted != true
         )
-
-        // Nama, kode, dan satuan batch harus mengikuti produk.
         && request.resource.data.productName
           == productBefore.name
         && request.resource.data.productCode
           == productBefore.code
         && request.resource.data.unit
           == productBefore.unit
-
-        // Total stok produk harus bertambah sesuai stok batch.
         && productBefore.totalStock is int
         && productAfter.totalStock
           == productBefore.totalStock
             + request.resource.data.initialQty
-
-        // Lokasi harus langsung dikunci oleh batch yang dibuat.
         && locationAfter.isOccupied == true
         && locationAfter.batchId == batchId
         && locationAfter.batchCode == batchId
@@ -400,12 +415,15 @@ service cloud.firestore {
           == request.resource.data.initialQty;
     }
 
-    function isValidBatchStockDecrease(batchId) {
+    function isValidBatchStockDecrease(
+      batchId
+    ) {
       let changedKeys = request.resource.data
         .diff(resource.data)
         .affectedKeys();
 
-      let qtyDifference = resource.data.remainingQty
+      let qtyDifference =
+        resource.data.remainingQty
         - request.resource.data.remainingQty;
 
       let productBefore = get(
@@ -423,23 +441,28 @@ service cloud.firestore {
       return changedKeys.hasOnly([
           'remainingQty',
           'status',
+          'searchKeywords',
           'updatedAt'
         ])
         && resource.data.status == 'active'
         && resource.data.remainingQty is int
         && resource.data.remainingQty > 0
-        && request.resource.data.remainingQty is int
+        && request.resource.data.remainingQty
+          is int
         && request.resource.data.remainingQty >= 0
         && qtyDifference > 0
-        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedAt
+          is timestamp
+        && isValidSearchKeywords(
+          request.resource.data
+        )
         && request.resource.data.status
           == (
-            request.resource.data.remainingQty == 0
+            request.resource.data.remainingQty
+                == 0
               ? 'empty'
               : 'active'
           )
-
-        // Produk harus ikut diperbarui dalam transaksi yang sama.
         && productAfter.totalStock is int
         && productAfter.totalStock >= 0
         && (
@@ -448,8 +471,6 @@ service cloud.firestore {
           || productAfter.updatedAt
             != productBefore.updatedAt
         )
-
-        // Lokasi tetap terkunci jika stok masih ada.
         && (
           request.resource.data.remainingQty > 0
             ? (
@@ -466,7 +487,9 @@ service cloud.firestore {
         );
     }
 
-    function isValidBatchLocationTransfer(batchId) {
+    function isValidBatchLocationTransfer(
+      batchId
+    ) {
       let changedKeys = request.resource.data
         .diff(resource.data)
         .affectedKeys();
@@ -481,6 +504,7 @@ service cloud.firestore {
 
       return changedKeys.hasOnly([
           'storageLocation',
+          'searchKeywords',
           'updatedAt',
           'lastLocationTransferAt',
           'lastLocationTransferBy',
@@ -498,24 +522,30 @@ service cloud.firestore {
         )
         && request.resource.data.storageLocation
           != resource.data.storageLocation
-        && request.resource.data.lastLocationTransferBy
+        && request.resource.data
+            .lastLocationTransferBy
           == request.auth.uid
-        && request.resource.data.lastLocationTransferByName
+        && request.resource.data
+            .lastLocationTransferByName
           is string
-        && request.resource.data.lastLocationTransferAt
+        && request.resource.data
+            .lastLocationTransferAt
           is timestamp
-        && request.resource.data.lastLocationTransferFrom
+        && request.resource.data
+            .lastLocationTransferFrom
           == resource.data.storageLocation
-        && request.resource.data.lastLocationTransferTo
+        && request.resource.data
+            .lastLocationTransferTo
           == request.resource.data.storageLocation
-        && request.resource.data.updatedAt is timestamp
-
-        // Lokasi asal harus dibebaskan.
-        && sourceLocationAfter.isOccupied == false
+        && request.resource.data.updatedAt
+          is timestamp
+        && isValidSearchKeywords(
+          request.resource.data
+        )
+        && sourceLocationAfter.isOccupied
+          == false
         && sourceLocationAfter.batchId == null
         && sourceLocationAfter.remainingQty == 0
-
-        // Lokasi tujuan harus dikunci oleh batch yang sama.
         && targetLocationAfter.isOccupied == true
         && targetLocationAfter.batchId == batchId
         && targetLocationAfter.batchCode
@@ -541,13 +571,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    /*
-     * ============================================================
-     * STORAGE LOCATION LOCKS
-     * ============================================================
-     */
-
-    function isValidStorageLocationCore(locationId) {
+    function isValidStorageLocationCore(
+      locationId
+    ) {
       return request.resource.data.keys().hasAll([
           'id',
           'location',
@@ -563,39 +589,59 @@ service cloud.firestore {
           'updatedAt'
         ])
         && request.resource.data.id == locationId
-        && request.resource.data.location == locationId
+        && request.resource.data.location
+          == locationId
         && isValidStorageLocation(locationId)
         && request.resource.data.zone
           == zoneForLocation(locationId)
-        && request.resource.data.isOccupied is bool
-        && request.resource.data.remainingQty is int
+        && request.resource.data.isOccupied
+          is bool
+        && request.resource.data.remainingQty
+          is int
         && request.resource.data.remainingQty >= 0
-        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedAt
+          is timestamp
         && (
-          request.resource.data.isOccupied == true
+          request.resource.data.isOccupied
+              == true
             ? (
               request.resource.data.batchId is string
-              && request.resource.data.batchId.size() > 0
-              && request.resource.data.batchCode is string
-              && request.resource.data.productId is string
-              && request.resource.data.productName is string
-              && request.resource.data.remainingQty > 0
-              && request.resource.data.occupiedAt is timestamp
-              && request.resource.data.releasedAt == null
+              && request.resource.data.batchId
+                .size() > 0
+              && request.resource.data.batchCode
+                is string
+              && request.resource.data.productId
+                is string
+              && request.resource.data.productName
+                is string
+              && request.resource.data.remainingQty
+                > 0
+              && request.resource.data.occupiedAt
+                is timestamp
+              && request.resource.data.releasedAt
+                == null
             )
             : (
               request.resource.data.batchId == null
-              && request.resource.data.batchCode == null
-              && request.resource.data.productId == null
-              && request.resource.data.productName == null
-              && request.resource.data.remainingQty == 0
-              && request.resource.data.occupiedAt == null
-              && request.resource.data.releasedAt is timestamp
+              && request.resource.data.batchCode
+                == null
+              && request.resource.data.productId
+                == null
+              && request.resource.data.productName
+                == null
+              && request.resource.data.remainingQty
+                == 0
+              && request.resource.data.occupiedAt
+                == null
+              && request.resource.data.releasedAt
+                is timestamp
             )
         );
     }
 
-    function isValidStorageLocationCreate(locationId) {
+    function isValidStorageLocationCreate(
+      locationId
+    ) {
       return request.resource.data.keys().hasOnly([
           'id',
           'location',
@@ -610,10 +656,14 @@ service cloud.firestore {
           'releasedAt',
           'updatedAt'
         ])
-        && isValidStorageLocationCore(locationId);
+        && isValidStorageLocationCore(
+          locationId
+        );
     }
 
-    function isValidStorageLocationUpdate(locationId) {
+    function isValidStorageLocationUpdate(
+      locationId
+    ) {
       let changedKeys = request.resource.data
         .diff(resource.data)
         .affectedKeys();
@@ -632,26 +682,26 @@ service cloud.firestore {
           'releasedAt',
           'updatedAt'
         ])
-        && isValidStorageLocationCore(locationId);
+        && isValidStorageLocationCore(
+          locationId
+        );
     }
 
     match /storage_locations/{locationId} {
       allow read: if isActiveUser();
 
       allow create: if isActiveUser()
-        && isValidStorageLocationCreate(locationId);
+        && isValidStorageLocationCreate(
+          locationId
+        );
 
       allow update: if isActiveUser()
-        && isValidStorageLocationUpdate(locationId);
+        && isValidStorageLocationUpdate(
+          locationId
+        );
 
       allow delete: if false;
     }
-
-    /*
-     * ============================================================
-     * COUNTERS
-     * ============================================================
-     */
 
     function isValidCounterCreate(counterId) {
       return request.resource.data.keys().hasAll([
@@ -668,15 +718,22 @@ service cloud.firestore {
           'lastNumber',
           'updatedAt'
         ])
-        && counterId.matches('^batch_sequence_.+$')
+        && counterId.matches(
+          '^batch_sequence_.+$'
+        )
         && request.resource.data.id == counterId
-        && request.resource.data.productId is string
-        && request.resource.data.productId.size() > 0
-        && request.resource.data.productCode is string
-        && request.resource.data.productCode.size() > 0
+        && request.resource.data.productId
+          is string
+        && request.resource.data.productId
+          .size() > 0
+        && request.resource.data.productCode
+          is string
+        && request.resource.data.productCode
+          .size() > 0
         && request.resource.data.lastNumber is int
         && request.resource.data.lastNumber > 0
-        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.updatedAt
+          is timestamp
         && exists(
           /databases/$(database)/documents/products/$(request.resource.data.productId)
         );
@@ -691,7 +748,8 @@ service cloud.firestore {
           'lastNumber',
           'updatedAt'
         ])
-        && request.resource.data.id == resource.data.id
+        && request.resource.data.id
+          == resource.data.id
         && request.resource.data.id == counterId
         && request.resource.data.productId
           == resource.data.productId
@@ -700,7 +758,8 @@ service cloud.firestore {
         && request.resource.data.lastNumber is int
         && request.resource.data.lastNumber
           > resource.data.lastNumber
-        && request.resource.data.updatedAt is timestamp;
+        && request.resource.data.updatedAt
+          is timestamp;
     }
 
     match /counters/{counterId} {
@@ -715,13 +774,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    /*
-     * ============================================================
-     * TRANSACTIONS
-     * ============================================================
-     */
-
-    function isValidTransactionBase(transactionId) {
+    function isValidTransactionBase(
+      transactionId
+    ) {
       return request.resource.data.keys().hasAll([
           'type',
           'productId',
@@ -766,28 +821,50 @@ service cloud.firestore {
         && request.resource.data.unit is string
         && request.resource.data.performedBy
           == request.auth.uid
-        && request.resource.data.performedByName is string
+        && request.resource.data.performedByName
+          is string
         && request.resource.data.notes is string
-        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdAt
+          is timestamp
         && (
-          !('id' in request.resource.data)
-          || request.resource.data.id == transactionId
+          !(
+            'id'
+            in request.resource.data
+          )
+          || request.resource.data.id
+            == transactionId
         )
         && (
-          !('storageLocation' in request.resource.data)
-          || request.resource.data.storageLocation is string
+          !(
+            'storageLocation'
+            in request.resource.data
+          )
+          || request.resource.data.storageLocation
+            is string
         )
         && (
-          !('remainingQtyBefore' in request.resource.data)
-          || request.resource.data.remainingQtyBefore is int
+          !(
+            'remainingQtyBefore'
+            in request.resource.data
+          )
+          || request.resource.data.remainingQtyBefore
+            is int
         )
         && (
-          !('remainingQtyAfter' in request.resource.data)
-          || request.resource.data.remainingQtyAfter is int
+          !(
+            'remainingQtyAfter'
+            in request.resource.data
+          )
+          || request.resource.data.remainingQtyAfter
+            is int
         )
         && (
-          !('totalStockAfter' in request.resource.data)
-          || request.resource.data.totalStockAfter is int
+          !(
+            'totalStockAfter'
+            in request.resource.data
+          )
+          || request.resource.data.totalStockAfter
+            is int
         );
     }
 
@@ -812,7 +889,10 @@ service cloud.firestore {
         && batchAfter.remainingQty
           == request.resource.data.qty
         && batchAfter.createdBy
-          == request.auth.uid;
+          == request.auth.uid
+        && isValidSearchKeywords(
+          batchAfter
+        );
     }
 
     function isValidStockOutTransaction() {
@@ -846,6 +926,9 @@ service cloud.firestore {
               ? 'empty'
               : 'active'
           )
+        && isValidSearchKeywords(
+          batchAfter
+        )
         && batchBefore.batchCode
           == request.resource.data.batchCode
         && batchBefore.productId
@@ -863,34 +946,46 @@ service cloud.firestore {
             != productBefore.updatedAt
         )
         && (
-          !('storageLocation' in request.resource.data)
+          !(
+            'storageLocation'
+            in request.resource.data
+          )
           || request.resource.data.storageLocation
             == batchBefore.storageLocation
         )
         && (
-          !('remainingQtyBefore' in request.resource.data)
+          !(
+            'remainingQtyBefore'
+            in request.resource.data
+          )
           || request.resource.data.remainingQtyBefore
             == batchBefore.remainingQty
         )
         && (
-          !('remainingQtyAfter' in request.resource.data)
+          !(
+            'remainingQtyAfter'
+            in request.resource.data
+          )
           || request.resource.data.remainingQtyAfter
             == batchAfter.remainingQty
         )
         && (
-          !('totalStockAfter' in request.resource.data)
+          !(
+            'totalStockAfter'
+            in request.resource.data
+          )
           || request.resource.data.totalStockAfter
             == productAfter.totalStock
         );
     }
 
     match /transactions/{transactionId} {
-      // Riwayat transaksi, laporan, dan analisis hanya untuk owner.
       allow read: if isOwner();
 
-      // Owner dan karyawan tetap dapat membuat transaksi operasional.
       allow create: if isActiveUser()
-        && isValidTransactionBase(transactionId)
+        && isValidTransactionBase(
+          transactionId
+        )
         && (
           isValidStockInTransaction()
           || isValidStockOutTransaction()
@@ -899,13 +994,9 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    /*
-     * ============================================================
-     * BATCH MOVEMENTS
-     * ============================================================
-     */
-
-    function isValidBatchMovementCreate(movementId) {
+    function isValidBatchMovementCreate(
+      movementId
+    ) {
       let batchAfter = getAfter(
         /databases/$(database)/documents/batches/$(request.resource.data.batchId)
       ).data;
@@ -953,11 +1044,15 @@ service cloud.firestore {
         )
         && request.resource.data.movedBy
           == request.auth.uid
-        && request.resource.data.movedByName is string
-        && request.resource.data.remainingQty is int
+        && request.resource.data.movedByName
+          is string
+        && request.resource.data.remainingQty
+          is int
         && request.resource.data.remainingQty > 0
-        && request.resource.data.movedAt is timestamp
-        && request.resource.data.createdAt is timestamp
+        && request.resource.data.movedAt
+          is timestamp
+        && request.resource.data.createdAt
+          is timestamp
         && batchAfter.id
           == request.resource.data.batchId
         && batchAfter.batchCode
@@ -977,34 +1072,27 @@ service cloud.firestore {
         && batchAfter.lastLocationTransferFrom
           == request.resource.data.fromLocation
         && batchAfter.lastLocationTransferTo
-          == request.resource.data.toLocation;
+          == request.resource.data.toLocation
+        && isValidSearchKeywords(
+          batchAfter
+        );
     }
 
     match /batch_movements/{movementId} {
       allow read: if isActiveUser();
 
       allow create: if isActiveUser()
-        && isValidBatchMovementCreate(movementId);
+        && isValidBatchMovementCreate(
+          movementId
+        );
 
       allow update, delete: if false;
     }
-
-    /*
-     * ============================================================
-     * IMPORT LOGS
-     * ============================================================
-     */
 
     match /import_logs/{logId} {
       allow read: if isOwner();
       allow write: if false;
     }
-
-    /*
-     * ============================================================
-     * DEFAULT DENY
-     * ============================================================
-     */
 
     match /{document=**} {
       allow read, write: if false;

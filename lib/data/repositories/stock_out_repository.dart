@@ -27,6 +27,7 @@ class _StockOutPreparation {
 
 class StockOutRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   final BatchRepository _batchRepository = BatchRepository();
 
   CollectionReference<Map<String, dynamic>> get _batchesCollection {
@@ -38,11 +39,15 @@ class StockOutRepository {
   }
 
   CollectionReference<Map<String, dynamic>> get _transactionsCollection {
-    return _firestore.collection('transactions');
+    return _firestore.collection(
+      'transactions',
+    );
   }
 
   CollectionReference<Map<String, dynamic>> get _storageLocationsCollection {
-    return _firestore.collection('storage_locations');
+    return _firestore.collection(
+      'storage_locations',
+    );
   }
 
   int _parseInt(dynamic value) {
@@ -50,23 +55,18 @@ class StockOutRepository {
       return value.toInt();
     }
 
-    return int.tryParse(value?.toString() ?? '') ?? 0;
+    return int.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        0;
   }
 
   String _normalizeLocation(String value) {
     return value.trim().toUpperCase();
   }
 
-  String _normalizeText(String value) {
-    return value.trim();
-  }
-
   Timestamp? _parseTimestamp(dynamic value) {
-    if (value is Timestamp) {
-      return value;
-    }
-
-    return null;
+    return value is Timestamp ? value : null;
   }
 
   bool _areTimestampsEqual(
@@ -85,20 +85,19 @@ class StockOutRepository {
         first.nanoseconds == second.nanoseconds;
   }
 
-  bool _isBatchEligibleForFifo(BatchModel batch) {
-    final normalizedStatus = batch.status.trim().toLowerCase();
-
-    return normalizedStatus == 'active' && batch.remainingQty > 0;
+  bool _isBatchEligibleForFifo(
+    BatchModel batch,
+  ) {
+    return batch.status.trim().toLowerCase() == 'active' &&
+        batch.remainingQty > 0;
   }
 
-  String _getBatchCodeForFifo(BatchModel batch) {
-    final batchCode = batch.batchCode.trim().toUpperCase();
+  String _getBatchCodeForFifo(
+    BatchModel batch,
+  ) {
+    final code = batch.batchCode.trim().toUpperCase();
 
-    if (batchCode.isNotEmpty) {
-      return batchCode;
-    }
-
-    return batch.id.trim().toUpperCase();
+    return code.isEmpty ? batch.id.trim().toUpperCase() : code;
   }
 
   int _extractSequenceFromBatchCode(
@@ -110,7 +109,10 @@ class StockOutRepository {
       return 0;
     }
 
-    return int.tryParse(parts.last.trim()) ?? 0;
+    return int.tryParse(
+          parts.last.trim(),
+        ) ??
+        0;
   }
 
   int _compareBatchesForFifo(
@@ -133,16 +135,16 @@ class StockOutRepository {
       return createdAtComparison;
     }
 
-    final firstBatchCode = _getBatchCodeForFifo(first);
+    final firstCode = _getBatchCodeForFifo(first);
 
-    final secondBatchCode = _getBatchCodeForFifo(second);
+    final secondCode = _getBatchCodeForFifo(second);
 
     final firstSequence = _extractSequenceFromBatchCode(
-      firstBatchCode,
+      firstCode,
     );
 
     final secondSequence = _extractSequenceFromBatchCode(
-      secondBatchCode,
+      secondCode,
     );
 
     if (firstSequence > 0 &&
@@ -153,12 +155,10 @@ class StockOutRepository {
       );
     }
 
-    final batchCodeComparison = firstBatchCode.compareTo(
-      secondBatchCode,
-    );
+    final codeComparison = firstCode.compareTo(secondCode);
 
-    if (batchCodeComparison != 0) {
-      return batchCodeComparison;
+    if (codeComparison != 0) {
+      return codeComparison;
     }
 
     return first.id.trim().toUpperCase().compareTo(
@@ -175,9 +175,7 @@ class StockOutRepository {
   }
 
   String _getLocationZone(String location) {
-    final normalizedLocation = _normalizeLocation(location);
-
-    return normalizedLocation.startsWith('X') ? 'backup' : 'main';
+    return _normalizeLocation(location).startsWith('X') ? 'backup' : 'main';
   }
 
   bool _isLocationOccupied(
@@ -218,7 +216,9 @@ class StockOutRepository {
     final batchDocument = await _batchesCollection.doc(batchId).get();
 
     if (!batchDocument.exists || batchDocument.data() == null) {
-      throw Exception('Batch tidak ditemukan.');
+      throw Exception(
+        'Batch tidak ditemukan.',
+      );
     }
 
     final scannedBatch = BatchModel.fromMap(
@@ -230,7 +230,8 @@ class StockOutRepository {
       scannedBatch,
     )) {
       throw Exception(
-        'Batch sudah tidak aktif atau stoknya telah habis.',
+        'Batch sudah tidak aktif atau '
+        'stoknya telah habis.',
       );
     }
 
@@ -245,7 +246,9 @@ class StockOutRepository {
     final productDocument = await _productsCollection.doc(productId).get();
 
     if (!productDocument.exists || productDocument.data() == null) {
-      throw Exception('Produk tidak ditemukan.');
+      throw Exception(
+        'Produk tidak ditemukan.',
+      );
     }
 
     final productData = productDocument.data()!;
@@ -264,20 +267,20 @@ class StockOutRepository {
             document.data(),
           ),
         )
-        .where(_isBatchEligibleForFifo)
-        .toList();
+        .where(
+          _isBatchEligibleForFifo,
+        )
+        .toList()
+      ..sort(
+        _compareBatchesForFifo,
+      );
 
     if (activeBatches.isEmpty) {
       throw Exception(
-        'Tidak ada batch aktif untuk produk ini.',
+        'Tidak ada batch aktif untuk '
+        'produk ini.',
       );
     }
-
-    activeBatches.sort(
-      _compareBatchesForFifo,
-    );
-
-    final fifoBatch = activeBatches.first;
 
     final actualTotalStock = activeBatches.fold<int>(
       0,
@@ -286,7 +289,7 @@ class StockOutRepository {
 
     return _StockOutPreparation(
       scannedBatch: scannedBatch,
-      fifoBatch: fifoBatch,
+      fifoBatch: activeBatches.first,
       actualTotalStock: actualTotalStock,
       cachedTotalStock: _parseInt(
         productData['totalStock'],
@@ -307,13 +310,13 @@ class StockOutRepository {
     required String performedByName,
     required String notes,
   }) async {
-    final cleanBatchId = _normalizeText(batchId);
+    final cleanBatchId = batchId.trim();
 
-    final cleanPerformedBy = _normalizeText(performedBy);
+    final cleanPerformedBy = performedBy.trim();
 
-    final cleanPerformedByName = _normalizeText(performedByName);
+    final cleanPerformedByName = performedByName.trim();
 
-    final cleanNotes = _normalizeText(notes);
+    final cleanNotes = notes.trim();
 
     if (cleanBatchId.isEmpty) {
       throw Exception(
@@ -323,7 +326,8 @@ class StockOutRepository {
 
     if (qty <= 0) {
       throw Exception(
-        'Jumlah stok keluar harus lebih dari 0.',
+        'Jumlah stok keluar harus '
+        'lebih dari 0.',
       );
     }
 
@@ -355,36 +359,46 @@ class StockOutRepository {
 
         final fifoLocation = fifoBatch.storageLocation.trim().isEmpty
             ? '-'
-            : fifoBatch.storageLocation;
+            : fifoBatch.storageLocation.trim();
 
         throw Exception(
           'Batch tidak sesuai urutan FIFO. '
-          'Batch yang harus dikeluarkan terlebih dahulu adalah '
-          '${fifoBatch.batchCode}, tanggal masuk $fifoDate, '
-          'lokasi $fifoLocation, dengan sisa '
-          '${fifoBatch.remainingQty} ${fifoBatch.unit}.',
+          'Batch yang harus dikeluarkan '
+          'terlebih dahulu adalah '
+          '${fifoBatch.batchCode}, tanggal '
+          'masuk $fifoDate, lokasi '
+          '$fifoLocation, dengan sisa '
+          '${fifoBatch.remainingQty} '
+          '${fifoBatch.unit}.',
         );
       }
 
       if (qty > scannedBatch.remainingQty) {
         throw Exception(
-          'Jumlah stok keluar melebihi sisa stok batch. '
-          'Sisa stok saat ini adalah '
-          '${scannedBatch.remainingQty} ${scannedBatch.unit}.',
+          'Jumlah stok keluar melebihi '
+          'sisa stok batch. Sisa stok '
+          'saat ini adalah '
+          '${scannedBatch.remainingQty} '
+          '${scannedBatch.unit}.',
         );
       }
 
       if (preparation.actualTotalStock < qty) {
         throw Exception(
-          'Jumlah stok keluar melebihi total stok produk.',
+          'Jumlah stok keluar melebihi '
+          'total stok produk.',
         );
       }
 
       final productId = scannedBatch.productId.trim();
 
-      final productRef = _productsCollection.doc(productId);
+      final productRef = _productsCollection.doc(
+        productId,
+      );
 
-      final batchRef = _batchesCollection.doc(cleanBatchId);
+      final batchRef = _batchesCollection.doc(
+        cleanBatchId,
+      );
 
       final location = _normalizeLocation(
         scannedBatch.storageLocation,
@@ -403,7 +417,7 @@ class StockOutRepository {
       final transactionRef = _transactionsCollection.doc();
 
       try {
-        final result = await _firestore.runTransaction<Map<String, dynamic>>(
+        return await _firestore.runTransaction<Map<String, dynamic>>(
           (transaction) async {
             final productSnapshot = await transaction.get(
               productRef,
@@ -435,27 +449,21 @@ class StockOutRepository {
 
             final currentLocationData = locationSnapshot.data();
 
-            final currentCachedTotalStock = _parseInt(
-              currentProductData['totalStock'],
-            );
-
-            final currentProductUpdatedAt = _parseTimestamp(
-              currentProductData['updatedAt'],
-            );
-
-            final currentBatchUpdatedAt = _parseTimestamp(
-              currentBatchData['updatedAt'],
-            );
-
-            final productHasChanged =
-                currentCachedTotalStock != preparation.cachedTotalStock ||
-                    !_areTimestampsEqual(
-                      currentProductUpdatedAt,
-                      preparation.productUpdatedAt,
-                    );
+            final productHasChanged = _parseInt(
+                      currentProductData['totalStock'],
+                    ) !=
+                    preparation.cachedTotalStock ||
+                !_areTimestampsEqual(
+                  _parseTimestamp(
+                    currentProductData['updatedAt'],
+                  ),
+                  preparation.productUpdatedAt,
+                );
 
             final batchHasChanged = !_areTimestampsEqual(
-              currentBatchUpdatedAt,
+              _parseTimestamp(
+                currentBatchData['updatedAt'],
+              ),
               preparation.batchUpdatedAt,
             );
 
@@ -487,13 +495,15 @@ class StockOutRepository {
 
             if (currentStatus != 'active' || currentRemainingQty <= 0) {
               throw Exception(
-                'Batch sudah tidak aktif atau stoknya telah habis.',
+                'Batch sudah tidak aktif '
+                'atau stoknya telah habis.',
               );
             }
 
             if (qty > currentRemainingQty) {
               throw Exception(
-                'Jumlah stok keluar melebihi sisa stok batch. '
+                'Jumlah stok keluar '
+                'melebihi sisa stok batch. '
                 'Sisa stok saat ini adalah '
                 '$currentRemainingQty '
                 '${scannedBatch.unit}.',
@@ -512,7 +522,8 @@ class StockOutRepository {
                     ) !=
                     cleanBatchId) {
               throw Exception(
-                'Data lokasi $location tidak sesuai dengan batch.',
+                'Data lokasi $location '
+                'tidak sesuai dengan batch.',
               );
             }
 
@@ -520,13 +531,14 @@ class StockOutRepository {
 
             final newTotalStock = preparation.actualTotalStock - qty;
 
+            final newStatus = newRemainingQty == 0 ? 'empty' : 'active';
+
             if (newTotalStock < 0) {
               throw Exception(
-                'Total stok produk tidak mencukupi.',
+                'Total stok produk '
+                'tidak mencukupi.',
               );
             }
-
-            final newStatus = newRemainingQty == 0 ? 'empty' : 'active';
 
             final now = Timestamp.now();
 
@@ -543,11 +555,20 @@ class StockOutRepository {
                 .toString()
                 .trim();
 
+            final updatedSearchKeywords =
+                BatchRepository.buildSearchKeywordsFromMap(
+              documentId: cleanBatchId,
+              data: currentBatchData,
+              overrideStatus: newStatus,
+              overrideRemainingQty: newRemainingQty,
+            );
+
             transaction.update(
               batchRef,
               {
                 'remainingQty': newRemainingQty,
                 'status': newStatus,
+                'searchKeywords': updatedSearchKeywords,
                 'updatedAt': now,
               },
             );
@@ -615,13 +636,13 @@ class StockOutRepository {
             };
           },
         );
-
-        return result;
       } on _RetryStockOutException {
         if (attempt == maximumAttempts) {
           throw Exception(
-            'Data stok berubah saat proses berlangsung. '
-            'Silakan periksa kembali urutan FIFO dan ulangi proses.',
+            'Data stok berubah saat proses '
+            'berlangsung. Silakan periksa '
+            'kembali urutan FIFO dan '
+            'ulangi proses.',
           );
         }
       }

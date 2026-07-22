@@ -15,27 +15,68 @@ class StockTrendPage extends StatefulWidget {
 }
 
 class _StockTrendPageState extends State<StockTrendPage> {
+  static const String _allProductsValue = '__all_products__';
+  static const int _historyMonths = 6;
+  static const int _forecastDays = 7;
+  static const int _weeklyWindowDays = 7;
+  static const double _pointSpacing = 72;
+
   final ProductRepository _productRepository = ProductRepository();
   final TransactionRepository _transactionRepository = TransactionRepository();
+  final ScrollController _trendScrollController = ScrollController();
+
+  late final DateTime _historyStart;
+  late final DateTime _historyEnd;
+  late final Stream<List<TransactionModel>> _transactionsStream;
 
   List<ProductModel> _products = [];
-  String? _selectedProductId;
-  DateTimeRange? _selectedDateRange;
+  String _selectedProduct = _allProductsValue;
+  String? _lastScrollKey;
+  bool _loadingProducts = true;
 
-  bool _isLoadingProducts = true;
+  bool get _isAllProducts => _selectedProduct == _allProductsValue;
 
-  final BoxShadow _softShadow = BoxShadow(
-    color: Colors.black.withOpacity(0.07),
-    blurRadius: 12,
-    offset: const Offset(0, 4),
-  );
+  Set<String> get _activeProductIds =>
+      _products.map((product) => product.id).toSet();
 
   @override
   void initState() {
     super.initState();
-    _selectedDateRange = _getDefaultDateRange();
+
+    final now = DateTime.now();
+    _historyEnd = DateTime(now.year, now.month, now.day);
+    _historyStart = _subtractMonths(_historyEnd, _historyMonths);
+
+    _transactionsStream =
+        _transactionRepository.getTransactionsByDateRangeStream(
+      startDate: _historyStart,
+      endDate: _historyEnd,
+    );
+
     _loadProducts();
   }
+
+  @override
+  void dispose() {
+    _trendScrollController.dispose();
+    super.dispose();
+  }
+
+  DateTime _subtractMonths(DateTime date, int months) {
+    final monthIndex = date.year * 12 + date.month - 1 - months;
+    final year = monthIndex ~/ 12;
+    final month = monthIndex % 12 + 1;
+    final lastDay = DateTime(year, month + 1, 0).day;
+
+    return DateTime(
+      year,
+      month,
+      math.min(date.day, lastDay),
+    );
+  }
+
+  DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
 
   Future<void> _loadProducts() async {
     try {
@@ -45,175 +86,161 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
       setState(() {
         _products = products;
-        _selectedProductId = products.isNotEmpty ? products.first.id : null;
-        _isLoadingProducts = false;
+        _loadingProducts = false;
+
+        if (!_isAllProducts &&
+            !_products.any((product) => product.id == _selectedProduct)) {
+          _selectedProduct = _allProductsValue;
+        }
       });
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
 
       setState(() {
-        _isLoadingProducts = false;
+        _loadingProducts = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal memuat produk: $e'),
-          backgroundColor: Colors.red,
-        ),
+      _showSnackBar(
+        'Gagal memuat produk: ${_cleanError(error)}',
+        Colors.red.shade600,
       );
     }
   }
 
-  ProductModel? _getSelectedProduct() {
-    if (_selectedProductId == null) return null;
+  ProductModel? _selectedProductModel() {
+    if (_isAllProducts) return null;
 
-    final matchedProducts = _products.where(
-      (product) => product.id == _selectedProductId,
-    );
+    for (final product in _products) {
+      if (product.id == _selectedProduct) return product;
+    }
 
-    if (matchedProducts.isEmpty) return null;
-
-    return matchedProducts.first;
+    return null;
   }
 
-  String _getSelectedProductName() {
-    return _getSelectedProduct()?.name ?? '-';
+  String _analysisName() {
+    return _isAllProducts
+        ? 'Semua Merek'
+        : (_selectedProductModel()?.name ?? '-');
   }
 
-  String _getSelectedProductUnit() {
-    return _getSelectedProduct()?.unit ?? 'karung';
+  String _unit() {
+    if (_isAllProducts) return 'Karung';
+
+    final value = _selectedProductModel()?.unit.trim() ?? '';
+    return value.isEmpty ? 'Karung' : value;
   }
 
-  int _getSelectedProductStock() {
-    return _getSelectedProduct()?.totalStock ?? 0;
+  int _currentStock() {
+    if (_isAllProducts) {
+      return _products.fold<int>(
+        0,
+        (total, product) => total + product.totalStock,
+      );
+    }
+
+    return _selectedProductModel()?.totalStock ?? 0;
   }
 
-  DateTime _startOfDay(DateTime date) {
-    return DateTime(date.year, date.month, date.day);
-  }
-
-  DateTime _endOfDay(DateTime date) {
-    return DateTime(date.year, date.month, date.day, 23, 59, 59);
-  }
-
-  DateTimeRange _getDefaultDateRange() {
-    final now = DateTime.now();
-
-    return DateTimeRange(
-      start: DateTime(now.year, now.month, 1),
-      end: _endOfDay(now),
-    );
-  }
-
-  DateTimeRange _getSelectedDateRange() {
-    final selectedRange = _selectedDateRange ?? _getDefaultDateRange();
-
-    return DateTimeRange(
-      start: _startOfDay(selectedRange.start),
-      end: _endOfDay(selectedRange.end),
-    );
+  String _dateKey(DateTime date) {
+    return '${date.year}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
   }
 
   String _formatDate(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final year = date.year.toString();
-
-    return '$day/$month/$year';
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
   }
 
   String _formatShortDate(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-
-    return '$day/$month';
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}';
   }
 
-  String _getSelectedPeriodText() {
-    final selectedRange = _getSelectedDateRange();
-
-    return '${_formatDate(selectedRange.start)} - ${_formatDate(selectedRange.end)}';
+  String _historyPeriod() {
+    return '${_formatDate(_historyStart)} - ${_formatDate(_historyEnd)}';
   }
 
-  String _buildDateKey(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  String _forecastPeriod() {
+    final start = _historyEnd.add(const Duration(days: 1));
+    final end = _historyEnd.add(const Duration(days: _forecastDays));
+
+    return '${_formatDate(start)} - ${_formatDate(end)}';
   }
 
-  List<_DailyStockOut> _buildDailyStockOutData(
-    List<TransactionModel> transactions,
+  _DailySeries _buildDailySeries(
+    List<TransactionModel> transactions, {
+    String? productId,
+  }) {
+    final map = <String, _DailyStockOut>{};
+    final totalDays = _historyEnd.difference(_historyStart).inDays;
+
+    for (var index = 0; index <= totalDays; index++) {
+      final date = _historyStart.add(Duration(days: index));
+
+      map[_dateKey(date)] = _DailyStockOut(
+        date: date,
+        qty: 0,
+      );
+    }
+
+    var transactionCount = 0;
+
+    for (final transaction in transactions) {
+      if (transaction.type.trim().toLowerCase() != 'stock_out') {
+        continue;
+      }
+
+      final matchesProduct = productId != null
+          ? transaction.productId == productId
+          : _activeProductIds.contains(transaction.productId);
+
+      if (!matchesProduct) {
+        continue;
+      }
+
+      final date = _dateOnly(
+        transaction.createdAt.toDate().toLocal(),
+      );
+
+      if (date.isBefore(_historyStart) || date.isAfter(_historyEnd)) {
+        continue;
+      }
+
+      final key = _dateKey(date);
+      final oldQty = map[key]?.qty ?? 0;
+
+      map[key] = _DailyStockOut(
+        date: date,
+        qty: oldQty + transaction.qty,
+      );
+
+      transactionCount++;
+    }
+
+    final points = map.values.toList()
+      ..sort(
+        (first, second) => first.date.compareTo(second.date),
+      );
+
+    return _DailySeries(
+      points: points,
+      transactionCount: transactionCount,
+      activeDays: points.where((point) => point.qty > 0).length,
+      totalQty: points.fold<int>(
+        0,
+        (total, point) => total + point.qty,
+      ),
+    );
+  }
+
+  _RegressionResult? _calculateRegression(
+    _DailySeries series,
   ) {
-    if (_selectedProductId == null) {
-      return [];
-    }
+    final data = series.points;
 
-    final selectedRange = _getSelectedDateRange();
-    final startDate = _startOfDay(selectedRange.start);
-    final endDate = _startOfDay(selectedRange.end);
-
-    final stockOutTransactions = transactions.where((transaction) {
-      final transactionDate = transaction.createdAt.toDate();
-      final transactionDateOnly = _startOfDay(transactionDate);
-
-      final matchProduct = transaction.productId == _selectedProductId;
-      final matchType = transaction.type.toLowerCase().trim() == 'stock_out';
-      final matchStartDate = !transactionDateOnly.isBefore(startDate);
-      final matchEndDate = !transactionDateOnly.isAfter(endDate);
-
-      return matchProduct && matchType && matchStartDate && matchEndDate;
-    }).toList();
-
-    if (stockOutTransactions.isEmpty) {
-      return [];
-    }
-
-    final Map<String, _DailyStockOut> dailyMap = {};
-    final totalDays = endDate.difference(startDate).inDays;
-
-    if (totalDays >= 0 && totalDays <= 45) {
-      for (int i = 0; i <= totalDays; i++) {
-        final currentDate = startDate.add(Duration(days: i));
-        final key = _buildDateKey(currentDate);
-
-        dailyMap[key] = _DailyStockOut(
-          date: currentDate,
-          qty: 0,
-        );
-      }
-    }
-
-    for (final transaction in stockOutTransactions) {
-      final dateTime = transaction.createdAt.toDate();
-
-      final dateOnly = DateTime(
-        dateTime.year,
-        dateTime.month,
-        dateTime.day,
-      );
-
-      final key = _buildDateKey(dateOnly);
-
-      if (!dailyMap.containsKey(key)) {
-        dailyMap[key] = _DailyStockOut(
-          date: dateOnly,
-          qty: 0,
-        );
-      }
-
-      dailyMap[key] = _DailyStockOut(
-        date: dateOnly,
-        qty: dailyMap[key]!.qty + transaction.qty,
-      );
-    }
-
-    final dailyData = dailyMap.values.toList();
-
-    dailyData.sort((a, b) => a.date.compareTo(b.date));
-
-    return dailyData;
-  }
-
-  _RegressionResult? _calculateLinearRegression(List<_DailyStockOut> data) {
-    if (data.length < 3) {
+    if (data.length < 3 || series.activeDays < 3) {
       return null;
     }
 
@@ -224,9 +251,9 @@ class _StockTrendPageState extends State<StockTrendPage> {
     double sumXY = 0;
     double sumX2 = 0;
 
-    for (int i = 0; i < n; i++) {
-      final x = i.toDouble();
-      final y = data[i].qty.toDouble();
+    for (var index = 0; index < n; index++) {
+      final x = index.toDouble();
+      final y = data[index].qty.toDouble();
 
       sumX += x;
       sumY += y;
@@ -234,91 +261,208 @@ class _StockTrendPageState extends State<StockTrendPage> {
       sumX2 += x * x;
     }
 
-    final denominator = (n * sumX2) - (sumX * sumX);
+    final denominator = n * sumX2 - sumX * sumX;
 
     if (denominator == 0) {
       return null;
     }
 
-    final slope = ((n * sumXY) - (sumX * sumY)) / denominator;
-    final intercept = (sumY - (slope * sumX)) / n;
+    final slope = (n * sumXY - sumX * sumY) / denominator;
+    final intercept = (sumY - slope * sumX) / n;
 
-    final totalQty = data.fold<int>(
-      0,
-      (total, item) => total + item.qty,
-    );
+    final predictions = <_PredictedStockOut>[];
+    var predictionTotal = 0;
 
-    final averageQty = totalQty / data.length;
+    for (var index = 0; index < _forecastDays; index++) {
+      final x = n + index;
+      final raw = intercept + slope * x;
+      final qty = math.max(0, raw).round();
 
-    final predictedDaily = <_PredictedStockOut>[];
-    double estimatedNext7Days = 0;
-
-    final lastDate = data.last.date;
-
-    for (int i = 0; i < 7; i++) {
-      final x = n + i;
-      final rawPrediction = intercept + (slope * x);
-      final double prediction = rawPrediction < 0 ? 0.0 : rawPrediction;
-      final roundedPrediction = prediction.round();
-
-      predictedDaily.add(
+      predictions.add(
         _PredictedStockOut(
-          date: lastDate.add(Duration(days: i + 1)),
-          qty: roundedPrediction,
+          date: _historyEnd.add(
+            Duration(days: index + 1),
+          ),
+          qty: qty,
         ),
       );
 
-      estimatedNext7Days += prediction;
-    }
-
-    String trendStatus;
-
-    if (slope > 0.1) {
-      trendStatus = 'Pengeluaran stok cenderung meningkat.';
-    } else if (slope < -0.1) {
-      trendStatus = 'Pengeluaran stok cenderung menurun.';
-    } else {
-      trendStatus = 'Pengeluaran stok relatif stabil.';
+      predictionTotal += qty;
     }
 
     return _RegressionResult(
       slope: slope,
       intercept: intercept,
-      trendStatus: trendStatus,
-      totalQty: totalQty,
-      averageQty: averageQty,
-      estimatedNext7Days: estimatedNext7Days,
-      predictedDaily: predictedDaily,
+      totalQty: series.totalQty,
+      averageQty: series.totalQty / data.length,
+      estimatedNext7Days: predictionTotal,
+      predictedDaily: predictions,
     );
   }
 
-  String _getTrendLabel(double slope) {
-    if (slope > 0.1) return 'Meningkat';
-    if (slope < -0.1) return 'Menurun';
+  List<_TrendPoint> _buildWeeklyPoints(
+    _DailySeries series,
+  ) {
+    final result = <_TrendPoint>[];
+    final data = series.points;
+
+    for (var startIndex = 0;
+        startIndex < data.length;
+        startIndex += _weeklyWindowDays) {
+      final endIndex = math.min(
+        startIndex + _weeklyWindowDays - 1,
+        data.length - 1,
+      );
+
+      var total = 0;
+
+      for (var index = startIndex; index <= endIndex; index++) {
+        total += data[index].qty;
+      }
+
+      final dayCount = endIndex - startIndex + 1;
+      final endDate = data[endIndex].date;
+
+      result.add(
+        _TrendPoint(
+          label: _formatShortDate(endDate),
+          value: dayCount == 0 ? 0.0 : total / dayCount,
+          sourceIndex: endIndex,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  _DailyStockOut _peakDay(
+    _DailySeries series,
+  ) {
+    var peak = series.points.first;
+
+    for (final point in series.points.skip(1)) {
+      if (point.qty > peak.qty) {
+        peak = point;
+      }
+    }
+
+    return peak;
+  }
+
+  List<_ProductForecast> _productForecasts(
+    List<TransactionModel> transactions,
+  ) {
+    final forecasts = _products.map((product) {
+      final series = _buildDailySeries(
+        transactions,
+        productId: product.id,
+      );
+
+      final result = _calculateRegression(series);
+      final estimated = result?.estimatedNext7Days ?? 0;
+
+      return _ProductForecast(
+        product: product,
+        activeDays: series.activeDays,
+        estimatedNeed: estimated,
+        additionalNeed: math.max(
+          0,
+          estimated - product.totalStock,
+        ),
+        hasEnoughData: result != null,
+      );
+    }).toList();
+
+    forecasts.sort((first, second) {
+      final restock = second.additionalNeed.compareTo(
+        first.additionalNeed,
+      );
+
+      if (restock != 0) {
+        return restock;
+      }
+
+      return first.product.name.compareTo(
+        second.product.name,
+      );
+    });
+
+    return forecasts;
+  }
+
+  void _scrollTrendToLatest(int pointCount) {
+    final key = '$_selectedProduct:$pointCount';
+
+    if (_lastScrollKey == key) {
+      return;
+    }
+
+    _lastScrollKey = key;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_trendScrollController.hasClients) {
+        return;
+      }
+
+      _trendScrollController.jumpTo(
+        _trendScrollController.position.maxScrollExtent,
+      );
+    });
+  }
+
+  String _trendLabel(double slope) {
+    if (slope > 0.1) {
+      return 'Meningkat';
+    }
+
+    if (slope < -0.1) {
+      return 'Menurun';
+    }
+
     return 'Stabil';
   }
 
-  Color _getTrendColor(double slope) {
-    if (slope > 0.1) return Colors.green.shade600;
-    if (slope < -0.1) return Colors.red.shade400;
-    return Colors.orange.shade500;
-  }
-
-  IconData _getTrendIcon(double slope) {
-    if (slope > 0.1) return Icons.trending_up;
-    if (slope < -0.1) return Icons.trending_down;
-    return Icons.trending_flat;
-  }
-
-  String _getPredictionStatus({
-    required int currentStock,
-    required int estimatedNeed,
-  }) {
-    if (currentStock <= 0) {
-      return 'Perlu Restock';
+  String _trendDescription(double slope) {
+    if (slope > 0.1) {
+      return 'Pengeluaran stok cenderung meningkat.';
     }
 
-    if (currentStock < estimatedNeed) {
+    if (slope < -0.1) {
+      return 'Pengeluaran stok cenderung menurun.';
+    }
+
+    return 'Pengeluaran stok relatif stabil.';
+  }
+
+  Color _trendColor(double slope) {
+    if (slope > 0.1) {
+      return Colors.green.shade600;
+    }
+
+    if (slope < -0.1) {
+      return Colors.red.shade600;
+    }
+
+    return Colors.orange.shade600;
+  }
+
+  IconData _trendIcon(double slope) {
+    if (slope > 0.1) {
+      return Icons.trending_up_rounded;
+    }
+
+    if (slope < -0.1) {
+      return Icons.trending_down_rounded;
+    }
+
+    return Icons.trending_flat_rounded;
+  }
+
+  String _predictionStatus(
+    int currentStock,
+    int estimatedNeed,
+  ) {
+    if (currentStock < estimatedNeed || currentStock <= 0) {
       return 'Perlu Restock';
     }
 
@@ -329,82 +473,1014 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return 'Stok Aman';
   }
 
-  Color _getPredictionColor(String status) {
-    if (status == 'Perlu Restock') return Colors.red.shade500;
-    if (status == 'Perlu Dipantau') return Colors.orange.shade500;
+  Color _predictionColor(String status) {
+    if (status == 'Perlu Restock') {
+      return Colors.red.shade600;
+    }
+
+    if (status == 'Perlu Dipantau') {
+      return Colors.orange.shade600;
+    }
+
     return Colors.green.shade600;
   }
 
-  IconData _getPredictionIcon(String status) {
-    if (status == 'Perlu Restock') return Icons.warning_amber_rounded;
-    if (status == 'Perlu Dipantau') return Icons.visibility_outlined;
-    return Icons.check_circle_outline;
+  String _cleanError(Object? error) {
+    return error.toString().replaceFirst(
+          'Exception: ',
+          '',
+        );
   }
 
-  Future<void> _pickCustomDateRange() async {
-    final now = DateTime.now();
+  void _showSnackBar(
+    String message,
+    Color color,
+  ) {
+    if (!mounted) {
+      return;
+    }
 
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2024),
-      lastDate: DateTime(2100),
-      initialDateRange: _selectedDateRange ??
-          DateTimeRange(
-            start: DateTime(now.year, now.month, 1),
-            end: now,
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: color,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAFAFA),
+      appBar: _appBar(),
+      body: _loadingProducts
+          ? const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFF038E1B),
+              ),
+            )
+          : StreamBuilder<List<TransactionModel>>(
+              stream: _transactionsStream,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF038E1B),
+                    ),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return _errorState(snapshot.error);
+                }
+
+                final transactions = snapshot.data ?? [];
+
+                final series = _buildDailySeries(
+                  transactions,
+                  productId: _isAllProducts ? null : _selectedProduct,
+                );
+
+                final regression = _calculateRegression(series);
+
+                return SafeArea(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                      16,
+                      24,
+                      16,
+                      32,
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: 620,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _filterCard(),
+                            const SizedBox(height: 24),
+                            _analysisCard(
+                              series,
+                              regression,
+                            ),
+                            const SizedBox(height: 24),
+                            _trendChartCard(
+                              series,
+                              regression,
+                            ),
+                            const SizedBox(height: 24),
+                            _predictionButton(
+                              transactions,
+                              regression,
+                            ),
+                            const SizedBox(height: 24),
+                            _dailyDataCard(series),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  PreferredSizeWidget _appBar() {
+    return AppBar(
+      centerTitle: true,
+      elevation: 0,
+      foregroundColor: Colors.white,
+      title: const Text(
+        'ANALISIS TREN',
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+          letterSpacing: 1.2,
+        ),
+      ),
+      flexibleSpace: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFF015816),
+              Color(0xFF038E1B),
+              Color(0xFF84E977),
+            ],
           ),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF038E1B),
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(20),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _filterCard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Filter Analisis',
+          'Pilih semua merek atau satu merek. Periode histori otomatis menggunakan enam bulan terakhir.',
+        ),
+        _card(
+          child: Column(
+            children: [
+              DropdownButtonFormField<String>(
+                value: _selectedProduct,
+                isExpanded: true,
+                decoration: _inputDecoration(
+                  'Produk / Merek Beras',
+                  Icons.inventory_2_outlined,
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: _allProductsValue,
+                    child: Text(
+                      'Semua Merek',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  ..._products.map(
+                    (product) => DropdownMenuItem<String>(
+                      value: product.id,
+                      child: Text(
+                        product.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+
+                  setState(() {
+                    _selectedProduct = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F8F1),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: const Color(0xFFC8E6C9),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.date_range_outlined,
+                      color: Color(0xFF038E1B),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Periode Histori Otomatis',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _historyPeriod(),
+                            style: const TextStyle(
+                              color: Color(0xFF015816),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _analysisCard(
+    _DailySeries series,
+    _RegressionResult? regression,
+  ) {
+    if (series.transactionCount == 0) {
+      return _infoCard(
+        'Belum ada transaksi stok keluar untuk ${_analysisName()} pada periode ${_historyPeriod()}.',
+      );
+    }
+
+    if (regression == null) {
+      return _infoCard(
+        '${_analysisName()} baru memiliki ${series.activeDays} hari aktif. Minimal diperlukan 3 hari aktif untuk analisis dan prediksi.',
+      );
+    }
+
+    final color = _trendColor(regression.slope);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Dashboard Analisis Tren',
+          'Ringkasan linear regression dari data stok keluar selama enam bulan terakhir.',
+        ),
+        _card(
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: color.withOpacity(0.14),
+                    child: Icon(
+                      _trendIcon(regression.slope),
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Status Tren',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          _trendDescription(regression.slope),
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _chip(
+                    _trendLabel(regression.slope),
+                    color,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _resultRow(
+                'Mode Analisis',
+                _analysisName(),
+              ),
+              _resultRow(
+                'Periode Histori',
+                _historyPeriod(),
+              ),
+              _resultRow(
+                'Jumlah Data Harian',
+                '${series.points.length} hari',
+              ),
+              _resultRow(
+                'Hari Ada Stok Keluar',
+                '${series.activeDays} hari',
+              ),
+              _resultRow(
+                'Jumlah Transaksi',
+                '${series.transactionCount} transaksi',
+              ),
+              _resultRow(
+                'Total Stok Keluar',
+                '${regression.totalQty} ${_unit()}',
+              ),
+              _resultRow(
+                'Rata-rata per Hari',
+                '${regression.averageQty.toStringAsFixed(2)} ${_unit()}',
+              ),
+              _resultRow(
+                'Nilai Slope',
+                regression.slope.toStringAsFixed(4),
+              ),
+              _resultRow(
+                'Nilai Intercept',
+                regression.intercept.toStringAsFixed(4),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _trendChartCard(
+    _DailySeries series,
+    _RegressionResult? regression,
+  ) {
+    if (series.transactionCount == 0 || regression == null) {
+      return const SizedBox.shrink();
+    }
+
+    final points = _buildWeeklyPoints(series);
+    final peak = _peakDay(series);
+
+    final chartWidth = 58 +
+        math.max(
+              0,
+              points.length - 1,
+            ) *
+            _pointSpacing;
+
+    _scrollTrendToLatest(points.length);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Grafik Tren Stok Keluar 6 Bulan',
+          'Satu titik mewakili rata-rata tujuh hari dan memiliki satu label tanggal pada sumbu X.',
+        ),
+        _card(
+          padding: const EdgeInsets.fromLTRB(
+            12,
+            14,
+            12,
+            12,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _miniSummary(
+                      'Rata-rata Harian',
+                      '${regression.averageQty.toStringAsFixed(2)} ${_unit()}',
+                      Icons.show_chart_rounded,
+                      Colors.green,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _miniSummary(
+                      'Puncak Harian',
+                      '${peak.qty} ${_unit()}',
+                      Icons.north_east_rounded,
+                      Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Puncak terjadi pada ${_formatDate(peak.date)}.',
+                style: const TextStyle(
+                  color: Colors.black54,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Sumbu Y: Rata-rata stok keluar (${_unit()}/hari)',
+                style: const TextStyle(
+                  color: Colors.black54,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = math.max(
+                    constraints.maxWidth,
+                    chartWidth.toDouble(),
+                  );
+
+                  return Scrollbar(
+                    controller: _trendScrollController,
+                    thumbVisibility: true,
+                    trackVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: _trendScrollController,
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: SizedBox(
+                        width: width,
+                        height: 334,
+                        child: CustomPaint(
+                          painter: _TrendChartPainter(
+                            points: points,
+                            regression: regression,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              const Center(
+                child: Text(
+                  'Sumbu X: Tanggal akhir setiap periode 7 hari',
+                  style: TextStyle(
+                    color: Colors.black54,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5F8F5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.swipe_rounded,
+                      size: 17,
+                      color: Color(0xFF038E1B),
+                    ),
+                    SizedBox(width: 7),
+                    Flexible(
+                      child: Text(
+                        'Geser ke kiri untuk melihat histori yang lebih lama.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.black54,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 16,
+                runSpacing: 8,
+                children: [
+                  _legend(
+                    const Color(0xFF038E1B),
+                    'Rata-rata 7 Hari',
+                    false,
+                  ),
+                  _legend(
+                    Colors.orange.shade700,
+                    'Garis Tren Regresi',
+                    true,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _predictionButton(
+    List<TransactionModel> transactions,
+    _RegressionResult? regression,
+  ) {
+    final enabled = regression != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Prediksi Stok Keluar 7 Hari',
+          'Prediksi dihitung untuk tujuh hari setelah tanggal akhir histori.',
+        ),
+        Opacity(
+          opacity: enabled ? 1 : 0.55,
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF015816),
+                    Color(0xFF038E1B),
+                    Color(0xFF84E977),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: regression != null
+                      ? () {
+                          _showPredictionSheet(
+                            transactions,
+                            regression,
+                          );
+                        }
+                      : () {
+                          _showSnackBar(
+                            'Minimal diperlukan 3 hari aktif untuk membuat prediksi.',
+                            Colors.orange.shade700,
+                          );
+                        },
+                  child: const Center(
+                    child: Text(
+                      'Lihat Prediksi 7 Hari',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
-          child: child!,
+        ),
+      ],
+    );
+  }
+
+  void _showPredictionSheet(
+    List<TransactionModel> transactions,
+    _RegressionResult regression,
+  ) {
+    final forecasts = _isAllProducts
+        ? _productForecasts(transactions)
+        : const <_ProductForecast>[];
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.86,
+          minChildSize: 0.58,
+          maxChildSize: 0.94,
+          builder: (
+            context,
+            controller,
+          ) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFFAFAFA),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(26),
+                ),
+              ),
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  16,
+                  16,
+                  30,
+                ),
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Prediksi Stok Keluar 7 Hari',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(
+                          Icons.close_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '${_analysisName()} • ${_forecastPeriod()}',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _predictionSummary(regression),
+                  const SizedBox(height: 20),
+                  _predictionChart(regression),
+                  const SizedBox(height: 20),
+                  _predictionDailyList(regression),
+                  if (_isAllProducts) ...[
+                    const SizedBox(height: 20),
+                    _forecastList(forecasts),
+                  ],
+                ],
+              ),
+            );
+          },
         );
       },
     );
-
-    if (picked == null) return;
-
-    setState(() {
-      _selectedDateRange = picked;
-    });
   }
 
-  Widget _buildCleanCard({
-    required Widget child,
-    EdgeInsetsGeometry? padding,
-    EdgeInsetsGeometry? margin,
-    Color color = Colors.white,
-    Color borderColor = const Color(0xFFE5E5E5),
-  }) {
-    return Container(
-      width: double.infinity,
-      margin: margin,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: borderColor,
-          width: 1,
-        ),
-        boxShadow: [_softShadow],
-      ),
-      child: Padding(
-        padding: padding ?? const EdgeInsets.all(16),
-        child: child,
+  Widget _predictionSummary(
+    _RegressionResult regression,
+  ) {
+    final current = _currentStock();
+    final estimated = regression.estimatedNext7Days;
+    final additional = math.max(
+      0,
+      estimated - current,
+    );
+
+    final status = _predictionStatus(
+      current,
+      estimated,
+    );
+
+    final color = _predictionColor(status);
+
+    return _card(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: color.withOpacity(0.14),
+                child: Icon(
+                  Icons.insights_rounded,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              _chip(
+                additional > 0 ? 'Restock' : 'Aman',
+                color,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _resultRow(
+            'Mode Analisis',
+            _analysisName(),
+          ),
+          _resultRow(
+            'Periode Prediksi',
+            _forecastPeriod(),
+          ),
+          _resultRow(
+            'Stok Saat Ini',
+            '$current ${_unit()}',
+          ),
+          _resultRow(
+            'Estimasi 7 Hari',
+            '$estimated ${_unit()}',
+          ),
+          _resultRow(
+            'Saran Tambahan',
+            additional == 0 ? 'Tidak perlu' : '$additional ${_unit()}',
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildSectionTitle({
-    required String title,
-    required String subtitle,
-  }) {
+  Widget _predictionChart(
+    _RegressionResult regression,
+  ) {
+    final points = regression.predictedDaily
+        .map(
+          (item) => _TrendPoint(
+            label: _formatShortDate(item.date),
+            value: item.qty.toDouble(),
+            sourceIndex: 0,
+          ),
+        )
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Grafik Prediksi 7 Hari',
+          'Setiap titik menunjukkan estimasi stok keluar harian.',
+        ),
+        _card(
+          padding: const EdgeInsets.all(12),
+          child: SizedBox(
+            height: 270,
+            child: CustomPaint(
+              painter: _PredictionChartPainter(points),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _predictionDailyList(
+    _RegressionResult regression,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Rincian Prediksi Harian',
+          'Estimasi per tanggal.',
+        ),
+        ...regression.predictedDaily.map(
+          (item) => Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _formatDate(item.date),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                _chip(
+                  '${item.qty} ${_unit()}',
+                  Colors.deepPurple,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _forecastList(
+    List<_ProductForecast> forecasts,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Prediksi per Merek',
+          'Rincian kebutuhan stok masing-masing produk.',
+        ),
+        ...forecasts.map((forecast) {
+          final unit = forecast.product.unit.trim().isEmpty
+              ? 'Karung'
+              : forecast.product.unit.trim();
+
+          final color = !forecast.hasEnoughData
+              ? Colors.grey
+              : forecast.additionalNeed > 0
+                  ? Colors.red
+                  : Colors.green;
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: color.withOpacity(0.2),
+              ),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        forecast.product.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    _chip(
+                      !forecast.hasEnoughData
+                          ? 'Data kurang'
+                          : forecast.additionalNeed > 0
+                              ? 'Restock'
+                              : 'Aman',
+                      color,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _resultRow(
+                  'Hari Aktif',
+                  '${forecast.activeDays} hari',
+                ),
+                _resultRow(
+                  'Stok Saat Ini',
+                  '${forecast.product.totalStock} $unit',
+                ),
+                _resultRow(
+                  'Prediksi 7 Hari',
+                  forecast.hasEnoughData
+                      ? '${forecast.estimatedNeed} $unit'
+                      : '-',
+                ),
+                _resultRow(
+                  'Saran Tambahan',
+                  !forecast.hasEnoughData
+                      ? '-'
+                      : forecast.additionalNeed == 0
+                          ? 'Tidak perlu'
+                          : '${forecast.additionalNeed} $unit',
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _dailyDataCard(
+    _DailySeries series,
+  ) {
+    if (series.transactionCount == 0) {
+      return const SizedBox.shrink();
+    }
+
+    final maxQty = series.points.fold<int>(
+      0,
+      (current, point) => math.max(
+        current,
+        point.qty,
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Data Harian Stok Keluar',
+          'Hari tanpa transaksi tetap ditampilkan dengan nilai 0.',
+        ),
+        _card(
+          padding: const EdgeInsets.all(12),
+          child: SizedBox(
+            height: 300,
+            child: ListView.separated(
+              itemCount: series.points.length,
+              separatorBuilder: (_, __) {
+                return const SizedBox(height: 7);
+              },
+              itemBuilder: (context, index) {
+                final item = series.points[index];
+
+                final ratio = maxQty == 0 ? 0.0 : item.qty / maxQty;
+
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8F8F8),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 58,
+                        child: Text(
+                          _formatShortDate(item.date),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: LinearProgressIndicator(
+                          value: ratio
+                              .clamp(
+                                0.0,
+                                1.0,
+                              )
+                              .toDouble(),
+                          minHeight: 8,
+                          backgroundColor: Colors.grey.shade200,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 82,
+                        child: Text(
+                          '${item.qty} ${_unit()}',
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionTitle(
+    String title,
+    String subtitle,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -415,7 +1491,6 @@ class _StockTrendPageState extends State<StockTrendPage> {
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: Colors.black87,
             ),
           ),
           const SizedBox(height: 4),
@@ -424,7 +1499,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
             style: const TextStyle(
               color: Colors.black54,
               fontSize: 11,
-              height: 1.25,
+              height: 1.3,
             ),
           ),
         ],
@@ -432,933 +1507,69 @@ class _StockTrendPageState extends State<StockTrendPage> {
     );
   }
 
-  Widget _buildProductAndPeriodFilter() {
-    if (_products.isEmpty) {
-      return _buildCleanCard(
-        color: Colors.grey.shade50,
-        borderColor: Colors.grey.shade300,
-        child: const Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.inventory_2_outlined, color: Colors.grey),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Belum ada produk aktif untuk dianalisis.',
-                style: TextStyle(color: Colors.black87, height: 1.3),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Filter Analisis',
-          subtitle:
-              'Pilih produk dan periode custom transaksi stok keluar yang ingin dianalisis.',
-        ),
-        _buildCleanCard(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DropdownButtonFormField<String>(
-                value: _selectedProductId,
-                isExpanded: true,
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
-                decoration: InputDecoration(
-                  labelText: 'Produk / Merk Beras',
-                  labelStyle: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                    fontSize: 14,
-                  ),
-                  filled: true,
-                  fillColor: const Color(0xFFF8F8F8),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFFDADADA)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: Color(0xFF038E1B)),
-                  ),
-                ),
-                items: _products.map((product) {
-                  return DropdownMenuItem<String>(
-                    value: product.id,
-                    child: Text(
-                      product.name,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value == null) return;
-
-                  setState(() {
-                    _selectedProductId = value;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Periode Analisis',
-                style: TextStyle(
-                  color: Colors.black87,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 9),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8F8F8),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFDADADA)),
-                ),
-                child: Row(
-                  children: [
-                    const CircleAvatar(
-                      radius: 17,
-                      backgroundColor: Color(0xFFE8F5E9),
-                      child: Icon(
-                        Icons.date_range_outlined,
-                        color: Color(0xFF038E1B),
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _getSelectedPeriodText(),
-                        style: const TextStyle(
-                          color: Colors.black87,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _buildSmallGradientButton(
-                      label: 'Pilih',
-                      icon: Icons.calendar_month,
-                      onTap: _pickCustomDateRange,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Periode custom digunakan sebagai batas data transaksi stok keluar yang dianalisis.',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 10,
-                  height: 1.3,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSmallGradientButton({
-    required String label,
-    required IconData icon,
-    required VoidCallback onTap,
+  Widget _card({
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(16),
   }) {
-    return Container(
-      height: 34,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF015816),
-            Color(0xFF038E1B),
-            Color(0xFF84E977),
-          ],
-          stops: [0.0, 0.55, 1.0],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(99),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(99),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 14, color: Colors.white),
-                const SizedBox(width: 5),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAnalysisResult({
-    required List<_DailyStockOut> dailyData,
-    required _RegressionResult? result,
-  }) {
-    if (_selectedProductId == null) {
-      return const SizedBox.shrink();
-    }
-
-    if (dailyData.isEmpty) {
-      return _buildEmptyTrendDataCard();
-    }
-
-    if (dailyData.length < 3 || result == null) {
-      return _buildNotEnoughDataCard(dailyData.length);
-    }
-
-    final trendColor = _getTrendColor(result.slope);
-    final trendLabel = _getTrendLabel(result.slope);
-    final trendIcon = _getTrendIcon(result.slope);
-
-    final unit = _getSelectedProductUnit();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Dashboard Analisis Tren',
-          subtitle:
-              'Ringkasan hasil perhitungan linear regression berdasarkan data aktual stok keluar pada periode custom.',
-        ),
-        _buildCleanCard(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: trendColor.withOpacity(0.15),
-                    child: Icon(trendIcon, color: trendColor, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Status Tren',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          result.trendStatus,
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            color: Colors.black54,
-                            height: 1.25,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _buildStatusChip(text: trendLabel, color: trendColor),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _buildResultRow(
-                icon: Icons.inventory_2_outlined,
-                label: 'Produk',
-                value: _getSelectedProductName(),
-              ),
-              _buildResultRow(
-                icon: Icons.date_range_outlined,
-                label: 'Periode',
-                value: _getSelectedPeriodText(),
-              ),
-              _buildResultRow(
-                icon: Icons.calendar_today_outlined,
-                label: 'Jumlah Data Harian',
-                value: '${dailyData.length} hari',
-              ),
-              _buildResultRow(
-                icon: Icons.arrow_upward,
-                label: 'Total Stok Keluar',
-                value: '${result.totalQty} $unit',
-              ),
-              _buildResultRow(
-                icon: Icons.bar_chart,
-                label: 'Rata-rata per Hari',
-                value: '${result.averageQty.toStringAsFixed(0)} $unit',
-              ),
-              _buildResultRow(
-                icon: Icons.functions,
-                label: 'Nilai Slope',
-                value: result.slope.toStringAsFixed(3),
-              ),
-              _buildResultRow(
-                icon: Icons.calculate_outlined,
-                label: 'Nilai Intercept',
-                value: result.intercept.toStringAsFixed(3),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Nilai slope menunjukkan arah perubahan stok keluar pada periode custom. Slope positif berarti meningkat, slope negatif berarti menurun, sedangkan nilai mendekati 0 menunjukkan tren relatif stabil.',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 10,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTrendChartSection({
-    required List<_DailyStockOut> dailyData,
-    required _RegressionResult? result,
-  }) {
-    if (dailyData.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final actualPoints = dailyData.map((item) {
-      return _TrendChartPoint(
-        label: _formatShortDate(item.date),
-        fullLabel: _formatDate(item.date),
-        value: item.qty.toDouble(),
-      );
-    }).toList();
-
-    final chartWidth = math.max(
-      MediaQuery.of(context).size.width - 96,
-      actualPoints.length * 48.0,
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Grafik Tren Stok Keluar',
-          subtitle:
-              'Grafik utama hanya menampilkan data aktual stok keluar dan garis tren regresi pada periode custom.',
-        ),
-        _buildCleanCard(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Sumbu Y: Total Stok Keluar (Karung)',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: SizedBox(
-                  width: chartWidth,
-                  height: 250,
-                  child: CustomPaint(
-                    painter: _TrendLineChartPainter(
-                      actualPoints: actualPoints,
-                      regressionResult: result,
-                      actualColor: const Color(0xFF038E1B),
-                      trendColor: Colors.orange.shade600,
-                      gridColor: Colors.black.withOpacity(0.12),
-                      textColor: Colors.black54,
-                    ),
-                    child: Container(),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Center(
-                child: Text(
-                  'Sumbu X: Tanggal',
-                  style: TextStyle(
-                    color: Colors.black54,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 16,
-                runSpacing: 8,
-                children: [
-                  _buildLegendItem(
-                    color: const Color(0xFF038E1B),
-                    label: 'Data Aktual',
-                    isDashed: false,
-                  ),
-                  _buildLegendItem(
-                    color: Colors.orange.shade600,
-                    label: 'Garis Tren',
-                    isDashed: true,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPredictionButton({
-    required List<_DailyStockOut> dailyData,
-    required _RegressionResult? result,
-  }) {
-    final canPredict = dailyData.length >= 3 && result != null;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Prediksi Stok Keluar',
-          subtitle:
-              'Prediksi 7 hari ke depan ditampilkan terpisah agar halaman utama tetap fokus pada analisis tren aktual.',
-        ),
-        Opacity(
-          opacity: canPredict ? 1 : 0.55,
-          child: Container(
-            width: double.infinity,
-            height: 46,
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF015816),
-                  Color(0xFF038E1B),
-                  Color(0xFF84E977),
-                ],
-                stops: [0.0, 0.55, 1.0],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.11),
-                  blurRadius: 6,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: canPredict
-                    ? () {
-                        _showPredictionBottomSheet(
-                          dailyData: dailyData,
-                          result: result,
-                        );
-                      }
-                    : () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Minimal diperlukan 3 hari data stok keluar untuk membuat prediksi.',
-                            ),
-                            backgroundColor: Colors.orange,
-                          ),
-                        );
-                      },
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.auto_graph_outlined,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Prediksi Stok Keluar 7 Hari',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  void _showPredictionBottomSheet({
-    required List<_DailyStockOut> dailyData,
-    required _RegressionResult result,
-  }) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (bottomSheetContext) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.82,
-          minChildSize: 0.55,
-          maxChildSize: 0.92,
-          builder: (context, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFFAFAFA),
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(26),
-                ),
-              ),
-              child: SingleChildScrollView(
-                controller: scrollController,
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 620),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Center(
-                          child: Container(
-                            width: 44,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade300,
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'Prediksi Stok Keluar 7 Hari',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              onPressed: () {
-                                Navigator.of(bottomSheetContext).pop();
-                              },
-                              icon: const Icon(Icons.close),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Prediksi dihitung berdasarkan data aktual stok keluar pada periode ${_getSelectedPeriodText()}.',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 11,
-                            height: 1.3,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        _buildPredictionSummaryCard(result),
-                        const SizedBox(height: 20),
-                        _buildPredictionChart(result),
-                        const SizedBox(height: 20),
-                        _buildPredictionDailyList(result),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildPredictionSummaryCard(_RegressionResult result) {
-    final unit = _getSelectedProductUnit();
-    final currentStock = _getSelectedProductStock();
-    final estimatedNeed = result.estimatedNext7Days.ceil();
-    final additionalNeed = math.max(0, estimatedNeed - currentStock);
-
-    final predictionStatus = _getPredictionStatus(
-      currentStock: currentStock,
-      estimatedNeed: estimatedNeed,
-    );
-
-    final statusColor = _getPredictionColor(predictionStatus);
-    final statusIcon = _getPredictionIcon(predictionStatus);
-
-    return _buildCleanCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 20,
-                backgroundColor: statusColor.withOpacity(0.15),
-                child: Icon(
-                  statusIcon,
-                  color: statusColor,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  predictionStatus,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: statusColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              _buildStatusChip(
-                text: additionalNeed > 0 ? 'Restock' : 'Aman',
-                color: statusColor,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _buildResultRow(
-            icon: Icons.inventory_2_outlined,
-            label: 'Produk',
-            value: _getSelectedProductName(),
-          ),
-          _buildResultRow(
-            icon: Icons.date_range_outlined,
-            label: 'Periode Data',
-            value: _getSelectedPeriodText(),
-          ),
-          _buildResultRow(
-            icon: Icons.inventory_outlined,
-            label: 'Stok Saat Ini',
-            value: '$currentStock $unit',
-          ),
-          _buildResultRow(
-            icon: Icons.next_week_outlined,
-            label: 'Estimasi Kebutuhan 7 Hari',
-            value: '$estimatedNeed $unit',
-          ),
-          _buildResultRow(
-            icon: Icons.add_box_outlined,
-            label: 'Saran Tambahan Stok',
-            value:
-                additionalNeed == 0 ? 'Tidak perlu' : '$additionalNeed $unit',
-          ),
-          _buildResultRow(
-            icon: Icons.timeline_outlined,
-            label: 'Rata-rata Historis',
-            value: '${result.averageQty.toStringAsFixed(0)} $unit/hari',
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Prediksi ini hanya digunakan sebagai informasi pendukung untuk memperkirakan kebutuhan stok. Keputusan pembelian tetap disesuaikan dengan kondisi nyata di toko.',
-            style: TextStyle(
-              color: Colors.black54,
-              fontSize: 10,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPredictionChart(_RegressionResult result) {
-    final predictionPoints = result.predictedDaily.map((item) {
-      return _TrendChartPoint(
-        label: _formatShortDate(item.date),
-        fullLabel: _formatDate(item.date),
-        value: item.qty.toDouble(),
-      );
-    }).toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Grafik Prediksi 7 Hari',
-          subtitle:
-              'Grafik ini menampilkan estimasi stok keluar selama 7 hari ke depan.',
-        ),
-        _buildCleanCard(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Sumbu Y: Prediksi Stok Keluar (Karung)',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                height: 250,
-                child: CustomPaint(
-                  painter: _PredictionLineChartPainter(
-                    predictionPoints: predictionPoints,
-                    predictionColor: Colors.deepPurple.shade500,
-                    forecastAreaColor: Colors.deepPurple.shade50,
-                    gridColor: Colors.black.withOpacity(0.12),
-                    textColor: Colors.black54,
-                  ),
-                  child: Container(),
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Center(
-                child: Text(
-                  'Sumbu X: Tanggal Prediksi',
-                  style: TextStyle(
-                    color: Colors.black54,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Center(
-                child: _buildLegendItem(
-                  color: Colors.deepPurple.shade500,
-                  label: 'Prediksi Stok Keluar',
-                  isDashed: false,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPredictionDailyList(_RegressionResult result) {
-    final unit = _getSelectedProductUnit();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Rincian Prediksi Harian',
-          subtitle:
-              'Rincian estimasi stok keluar untuk masing-masing hari prediksi.',
-        ),
-        ...result.predictedDaily.map((item) {
-          return Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 12),
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.withOpacity(0.045),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: Colors.deepPurple.withOpacity(0.14),
-                width: 1,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: Colors.deepPurple.withOpacity(0.15),
-                    child: const Icon(
-                      Icons.auto_graph,
-                      color: Colors.deepPurple,
-                      size: 18,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      _formatDate(item.date),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ),
-                  _buildStatusChip(
-                    text: '${item.qty} $unit',
-                    color: Colors.deepPurple.shade500,
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildLegendItem({
-    required Color color,
-    required String label,
-    required bool isDashed,
-  }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 24,
-          height: 8,
-          child: CustomPaint(
-            painter: _LegendLinePainter(
-              color: color,
-              isDashed: isDashed,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 11,
-            color: Colors.black54,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyTrendDataCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: padding,
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.orange.shade200),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            backgroundColor: Colors.orange.withOpacity(0.15),
-            child: const Icon(Icons.info_outline, color: Colors.orange),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Belum ada transaksi stok keluar untuk produk ${_getSelectedProductName()} pada periode ${_getSelectedPeriodText()}. Silakan pilih periode lain atau tambahkan transaksi stok keluar terlebih dahulu.',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.black87,
-                height: 1.35,
-              ),
-            ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE5E5E5),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
+      ),
+      child: child,
+    );
+  }
+
+  InputDecoration _inputDecoration(
+    String label,
+    IconData icon,
+  ) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(
+        icon,
+        color: const Color(0xFF038E1B),
+      ),
+      filled: true,
+      fillColor: const Color(0xFFF8F8F8),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(
+          color: Color(0xFF038E1B),
+          width: 2,
+        ),
       ),
     );
   }
 
-  Widget _buildNotEnoughDataCard(int dailyDataCount) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.orange.shade200),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CircleAvatar(
-            backgroundColor: Colors.orange.withOpacity(0.15),
-            child: const Icon(Icons.info_outline, color: Colors.orange),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'Produk ${_getSelectedProductName()} baru memiliki $dailyDataCount hari data stok keluar pada periode ini. Minimal diperlukan 3 hari data untuk melakukan analisis tren dan prediksi kebutuhan stok.',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.black87,
-                height: 1.35,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildResultRow({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
+  Widget _resultRow(
+    String label,
+    String value,
+  ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 9),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.black54),
-          const SizedBox(width: 8),
           Expanded(
             child: Text(
               label,
               style: const TextStyle(
                 fontSize: 12,
-                color: Colors.black87,
               ),
             ),
           ),
@@ -1367,10 +1578,8 @@ class _StockTrendPageState extends State<StockTrendPage> {
             child: Text(
               value,
               textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 12,
-                color: Colors.black87,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -1380,132 +1589,25 @@ class _StockTrendPageState extends State<StockTrendPage> {
     );
   }
 
-  Widget _buildStatusChip({
-    required String text,
-    required Color color,
-  }) {
+  Widget _miniSummary(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 4,
-      ),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: color.withOpacity(0.35)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 10.5,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDailyDataList(List<_DailyStockOut> dailyData) {
-    if (dailyData.isEmpty) return const SizedBox.shrink();
-
-    final unit = _getSelectedProductUnit();
-    final totalQty = dailyData.fold<int>(0, (total, item) => total + item.qty);
-    final activeDays = dailyData.where((item) => item.qty > 0).length;
-    final maxQty = dailyData.fold<int>(
-      0,
-      (maxValue, item) => math.max(maxValue, item.qty),
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildSectionTitle(
-          title: 'Data Harian Stok Keluar',
-          subtitle:
-              'Rekap harian yang digunakan dalam analisis tren. Daftar dibuat compact agar tidak terlalu panjang ke bawah.',
-        ),
-        _buildCleanCard(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildDailyMiniSummary(
-                      label: 'Total',
-                      value: '$totalQty $unit',
-                      icon: Icons.inventory_2_outlined,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildDailyMiniSummary(
-                      label: 'Hari Aktif',
-                      value: '$activeDays hari',
-                      icon: Icons.event_available_outlined,
-                      color: Colors.green,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                height: 260,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8F8F8),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE5E5E5)),
-                ),
-                child: ListView.separated(
-                  padding: const EdgeInsets.all(10),
-                  itemCount: dailyData.length,
-                  separatorBuilder: (context, index) {
-                    return const SizedBox(height: 8);
-                  },
-                  itemBuilder: (context, index) {
-                    final item = dailyData[index];
-
-                    return _buildCompactDailyRow(
-                      item: item,
-                      unit: unit,
-                      maxQty: maxQty,
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Data dengan nilai 0 menunjukkan tidak ada stok keluar pada tanggal tersebut.',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 10,
-                  height: 1.3,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDailyMiniSummary({
-    required String label,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: color.withOpacity(0.07),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.16)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 17),
+          Icon(
+            icon,
+            color: color,
+            size: 18,
+          ),
           const SizedBox(width: 7),
           Expanded(
             child: Column(
@@ -1516,16 +1618,12 @@ class _StockTrendPageState extends State<StockTrendPage> {
                   style: const TextStyle(
                     color: Colors.black54,
                     fontSize: 10,
-                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 2),
                 Text(
                   value,
-                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Colors.black87,
                     fontSize: 11.5,
                     fontWeight: FontWeight.bold,
                   ),
@@ -1538,223 +1636,99 @@ class _StockTrendPageState extends State<StockTrendPage> {
     );
   }
 
-  Widget _buildCompactDailyRow({
-    required _DailyStockOut item,
-    required String unit,
-    required int maxQty,
-  }) {
-    final ratio = maxQty <= 0 ? 0.0 : item.qty / maxQty;
-    final barColor = item.qty > 0 ? Colors.blue.shade600 : Colors.grey;
-
+  Widget _chip(
+    String text,
+    Color color,
+  ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 4,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: const Color(0xFFE8E8E8)),
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 10.5,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _legend(
+    Color color,
+    String label,
+    bool dashed,
+  ) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 26,
+          height: 8,
+          child: CustomPaint(
+            painter: _LegendPainter(
+              color: color,
+              dashed: dashed,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.black54,
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _infoCard(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.orange.shade200,
+        ),
       ),
       child: Row(
         children: [
-          SizedBox(
-            width: 58,
-            child: Text(
-              _formatShortDate(item.date),
-              style: const TextStyle(
-                color: Colors.black87,
-                fontSize: 11.5,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+          const Icon(
+            Icons.info_outline_rounded,
+            color: Colors.orange,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(99),
-              child: LinearProgressIndicator(
-                minHeight: 8,
-                value: ratio.clamp(0.0, 1.0),
-                backgroundColor: Colors.grey.shade200,
-                valueColor: AlwaysStoppedAnimation<Color>(barColor),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 74,
-            child: Text(
-              '${item.qty} $unit',
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: item.qty > 0 ? Colors.black87 : Colors.black45,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            child: Text(message),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildLoadingState() {
-    return const Center(
-      child: CircularProgressIndicator(color: Colors.green),
-    );
-  }
-
-  Widget _buildErrorState(Object? error) {
+  Widget _errorState(Object? error) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.red.shade50,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.red.shade200),
-          ),
-          child: Text(
-            'Gagal memuat transaksi: $error',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.red.shade700,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar() {
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(60.0),
-      child: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(
-            Icons.keyboard_double_arrow_left,
-            color: Colors.white,
-          ),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
-        title: const Text(
-          'ANALISIS TREN',
+        child: Text(
+          'Gagal memuat transaksi: ${_cleanError(error)}',
+          textAlign: TextAlign.center,
           style: TextStyle(
-            color: Colors.white,
+            color: Colors.red.shade700,
             fontWeight: FontWeight.bold,
-            fontSize: 16,
-            letterSpacing: 1.2,
-          ),
-        ),
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFF015816),
-                Color(0xFF038E1B),
-                Color(0xFF84E977),
-              ],
-              stops: [0.0, 0.5, 1.0],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.vertical(
-              bottom: Radius.circular(20),
-            ),
           ),
         ),
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
-      appBar: _buildAppBar(),
-      body: _isLoadingProducts
-          ? _buildLoadingState()
-          : StreamBuilder<List<TransactionModel>>(
-              stream: _transactionRepository.getTransactionsStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !snapshot.hasData) {
-                  return _buildLoadingState();
-                }
-
-                if (snapshot.hasError) {
-                  return _buildErrorState(snapshot.error);
-                }
-
-                final transactions = snapshot.data ?? [];
-                final dailyData = _buildDailyStockOutData(transactions);
-                final regressionResult = _calculateLinearRegression(dailyData);
-
-                return SafeArea(
-                  child: SingleChildScrollView(
-                    key: const PageStorageKey<String>('stock_trend_scroll'),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 24,
-                    ),
-                    physics: const ClampingScrollPhysics(),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 620),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: Colors.black12, width: 1),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 20,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildProductAndPeriodFilter(),
-                              const SizedBox(height: 24),
-                              _buildAnalysisResult(
-                                dailyData: dailyData,
-                                result: regressionResult,
-                              ),
-                              const SizedBox(height: 24),
-                              _buildTrendChartSection(
-                                dailyData: dailyData,
-                                result: regressionResult,
-                              ),
-                              const SizedBox(height: 24),
-                              _buildPredictionButton(
-                                dailyData: dailyData,
-                                result: regressionResult,
-                              ),
-                              const SizedBox(height: 24),
-                              _buildDailyDataList(dailyData),
-                              const SizedBox(height: 12),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
     );
   }
 }
@@ -1763,9 +1737,23 @@ class _DailyStockOut {
   final DateTime date;
   final int qty;
 
-  _DailyStockOut({
+  const _DailyStockOut({
     required this.date,
     required this.qty,
+  });
+}
+
+class _DailySeries {
+  final List<_DailyStockOut> points;
+  final int transactionCount;
+  final int activeDays;
+  final int totalQty;
+
+  const _DailySeries({
+    required this.points,
+    required this.transactionCount,
+    required this.activeDays,
+    required this.totalQty,
   });
 }
 
@@ -1773,7 +1761,7 @@ class _PredictedStockOut {
   final DateTime date;
   final int qty;
 
-  _PredictedStockOut({
+  const _PredictedStockOut({
     required this.date,
     required this.qty,
   });
@@ -1782,16 +1770,14 @@ class _PredictedStockOut {
 class _RegressionResult {
   final double slope;
   final double intercept;
-  final String trendStatus;
   final int totalQty;
   final double averageQty;
-  final double estimatedNext7Days;
+  final int estimatedNext7Days;
   final List<_PredictedStockOut> predictedDaily;
 
-  _RegressionResult({
+  const _RegressionResult({
     required this.slope,
     required this.intercept,
-    required this.trendStatus,
     required this.totalQty,
     required this.averageQty,
     required this.estimatedNext7Days,
@@ -1799,538 +1785,551 @@ class _RegressionResult {
   });
 }
 
-class _TrendChartPoint {
-  final String label;
-  final String fullLabel;
-  final double value;
+class _ProductForecast {
+  final ProductModel product;
+  final int activeDays;
+  final int estimatedNeed;
+  final int additionalNeed;
+  final bool hasEnoughData;
 
-  _TrendChartPoint({
-    required this.label,
-    required this.fullLabel,
-    required this.value,
+  const _ProductForecast({
+    required this.product,
+    required this.activeDays,
+    required this.estimatedNeed,
+    required this.additionalNeed,
+    required this.hasEnoughData,
   });
 }
 
-class _LegendLinePainter extends CustomPainter {
-  final Color color;
-  final bool isDashed;
+class _TrendPoint {
+  final String label;
+  final double value;
+  final int sourceIndex;
 
-  _LegendLinePainter({
+  const _TrendPoint({
+    required this.label,
+    required this.value,
+    required this.sourceIndex,
+  });
+}
+
+class _LegendPainter extends CustomPainter {
+  final Color color;
+  final bool dashed;
+
+  const _LegendPainter({
     required this.color,
-    required this.isDashed,
+    required this.dashed,
   });
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(
+    Canvas canvas,
+    Size size,
+  ) {
     final paint = Paint()
       ..color = color
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
-    if (!isDashed) {
+    if (!dashed) {
       canvas.drawLine(
-        Offset(0, size.height / 2),
-        Offset(size.width, size.height / 2),
+        Offset(
+          0,
+          size.height / 2,
+        ),
+        Offset(
+          size.width,
+          size.height / 2,
+        ),
         paint,
       );
+
       return;
     }
 
-    double startX = 0;
-    const dashWidth = 6;
-    const dashSpace = 4;
+    var x = 0.0;
 
-    while (startX < size.width) {
-      final endX = math.min(startX + dashWidth, size.width);
-
+    while (x < size.width) {
       canvas.drawLine(
-        Offset(startX, size.height / 2),
-        Offset(endX.toDouble(), size.height / 2),
+        Offset(
+          x,
+          size.height / 2,
+        ),
+        Offset(
+          math.min(
+            x + 6,
+            size.width,
+          ),
+          size.height / 2,
+        ),
         paint,
       );
 
-      startX += dashWidth + dashSpace;
+      x += 10;
     }
   }
 
   @override
-  bool shouldRepaint(covariant _LegendLinePainter oldDelegate) {
-    return oldDelegate.color != color || oldDelegate.isDashed != isDashed;
+  bool shouldRepaint(
+    covariant _LegendPainter oldDelegate,
+  ) {
+    return oldDelegate.color != color || oldDelegate.dashed != dashed;
   }
 }
 
-class _TrendLineChartPainter extends CustomPainter {
-  final List<_TrendChartPoint> actualPoints;
-  final _RegressionResult? regressionResult;
-  final Color actualColor;
-  final Color trendColor;
-  final Color gridColor;
-  final Color textColor;
+class _TrendChartPainter extends CustomPainter {
+  final List<_TrendPoint> points;
+  final _RegressionResult regression;
 
-  _TrendLineChartPainter({
-    required this.actualPoints,
-    required this.regressionResult,
-    required this.actualColor,
-    required this.trendColor,
-    required this.gridColor,
-    required this.textColor,
+  const _TrendChartPainter({
+    required this.points,
+    required this.regression,
   });
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (actualPoints.isEmpty) return;
+  void paint(
+    Canvas canvas,
+    Size size,
+  ) {
+    if (points.isEmpty) {
+      return;
+    }
 
-    final chartRect = Rect.fromLTWH(
-      36,
-      26,
-      size.width - 46,
-      size.height - 62,
+    final rect = Rect.fromLTWH(
+      44,
+      18,
+      math
+          .max(
+            1,
+            size.width - 58,
+          )
+          .toDouble(),
+      math
+          .max(
+            1,
+            size.height - 66,
+          )
+          .toDouble(),
     );
 
-    final maxActualValue = actualPoints.fold<double>(
+    var maxValue = points.fold<double>(
       0,
-      (maxValue, item) => math.max(maxValue, item.value),
+      (current, point) {
+        return math.max(
+          current,
+          point.value,
+        );
+      },
     );
 
-    double maxTrendValue = 0;
-
-    if (regressionResult != null && actualPoints.length >= 3) {
-      for (int i = 0; i < actualPoints.length; i++) {
-        final trendValue =
-            regressionResult!.intercept + (regressionResult!.slope * i);
-        maxTrendValue = math.max(maxTrendValue, trendValue);
-      }
-    }
-
-    final maxValueBase = math.max(maxActualValue, maxTrendValue);
-    final maxValue = maxValueBase <= 0 ? 1.0 : maxValueBase * 1.25;
-
-    final gridPaint = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1;
-
-    final axisPaint = Paint()
-      ..color = Colors.black.withOpacity(0.28)
-      ..strokeWidth = 1.2;
-
-    final actualPaint = Paint()
-      ..color = actualColor
-      ..strokeWidth = 2.6
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final trendPaint = Paint()
-      ..color = trendColor
-      ..strokeWidth = 2.4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final actualPointPaint = Paint()
-      ..color = actualColor
-      ..style = PaintingStyle.fill;
-
-    final actualHaloPaint = Paint()
-      ..color = actualColor.withOpacity(0.13)
-      ..style = PaintingStyle.fill;
-
-    double getX(int index) {
-      if (actualPoints.length == 1) return chartRect.center.dx;
-
-      return chartRect.left +
-          (chartRect.width / (actualPoints.length - 1)) * index;
-    }
-
-    double getY(double value) {
-      return chartRect.bottom - ((value / maxValue) * chartRect.height);
-    }
-
-    for (int i = 0; i <= 4; i++) {
-      final y = chartRect.top + (chartRect.height / 4) * i;
-
-      canvas.drawLine(
-        Offset(chartRect.left, y),
-        Offset(chartRect.right, y),
-        gridPaint,
-      );
-
-      final labelValue = maxValue - ((maxValue / 4) * i);
-
-      _drawText(
-        canvas: canvas,
-        text: labelValue.round().toString(),
-        offset: Offset(0, y - 8),
-        color: textColor,
-        fontSize: 9,
-        maxWidth: 30,
-        textAlign: TextAlign.right,
+    for (final point in points) {
+      maxValue = math.max(
+        maxValue,
+        math.max(
+          0,
+          regression.intercept + regression.slope * point.sourceIndex,
+        ),
       );
     }
 
-    canvas.drawLine(
-      Offset(chartRect.left, chartRect.bottom),
-      Offset(chartRect.right, chartRect.bottom),
-      axisPaint,
+    maxValue = maxValue <= 0 ? 1.0 : maxValue * 1.12;
+
+    _drawGrid(
+      canvas,
+      rect,
+      maxValue,
     );
 
-    canvas.drawLine(
-      Offset(chartRect.left, chartRect.top),
-      Offset(chartRect.left, chartRect.bottom),
-      axisPaint,
+    _drawVerticalGuides(
+      canvas,
+      rect,
+      points.length,
+    );
+
+    _drawLabels(
+      canvas,
+      rect,
+      points,
+      showAll: true,
     );
 
     final actualOffsets = <Offset>[];
+    final trendOffsets = <Offset>[];
 
-    for (int i = 0; i < actualPoints.length; i++) {
+    for (var index = 0; index < points.length; index++) {
       actualOffsets.add(
-        Offset(
-          getX(i),
-          getY(actualPoints[i].value),
+        _offset(
+          index,
+          points.length,
+          points[index].value,
+          maxValue,
+          rect,
+        ),
+      );
+
+      final trendValue = math.max(
+        0,
+        regression.intercept + regression.slope * points[index].sourceIndex,
+      );
+
+      trendOffsets.add(
+        _offset(
+          index,
+          points.length,
+          trendValue.toDouble(),
+          maxValue,
+          rect,
         ),
       );
     }
 
-    if (actualOffsets.length > 1) {
-      final actualPath = Path();
+    _drawSolidPath(
+      canvas,
+      actualOffsets,
+      const Color(0xFF038E1B),
+    );
 
-      for (int i = 0; i < actualOffsets.length; i++) {
-        if (i == 0) {
-          actualPath.moveTo(actualOffsets[i].dx, actualOffsets[i].dy);
-        } else {
-          actualPath.lineTo(actualOffsets[i].dx, actualOffsets[i].dy);
-        }
-      }
+    _drawDashedPath(
+      canvas,
+      trendOffsets,
+      Colors.orange.shade700,
+    );
 
-      canvas.drawPath(actualPath, actualPaint);
-    }
+    final border = Paint()..color = Colors.white;
 
-    if (regressionResult != null && actualPoints.length >= 3) {
-      final trendPath = Path();
+    final fill = Paint()..color = const Color(0xFF038E1B);
 
-      for (int i = 0; i < actualPoints.length; i++) {
-        final trendValue =
-            regressionResult!.intercept + (regressionResult!.slope * i);
+    for (final point in actualOffsets) {
+      canvas.drawCircle(
+        point,
+        4.4,
+        border,
+      );
 
-        final double safeTrendValue = trendValue < 0 ? 0.0 : trendValue;
-
-        final x = getX(i);
-        final y = getY(safeTrendValue);
-
-        if (i == 0) {
-          trendPath.moveTo(x, y);
-        } else {
-          trendPath.lineTo(x, y);
-        }
-      }
-
-      _drawDashedPath(
-        canvas,
-        trendPath,
-        trendPaint,
+      canvas.drawCircle(
+        point,
+        3,
+        fill,
       );
     }
-
-    final labelStep = actualPoints.length <= 10
-        ? 1
-        : math.max(1, (actualPoints.length / 8).ceil());
-
-    for (int i = 0; i < actualOffsets.length; i++) {
-      final offset = actualOffsets[i];
-
-      canvas.drawCircle(offset, 6, actualHaloPaint);
-      canvas.drawCircle(offset, 3.8, actualPointPaint);
-
-      final showValue = actualPoints.length <= 14 || actualPoints[i].value > 0;
-
-      if (showValue) {
-        _drawText(
-          canvas: canvas,
-          text: actualPoints[i].value.round().toString(),
-          offset: Offset(offset.dx - 15, offset.dy - 22),
-          color: actualColor,
-          fontSize: 8.5,
-          maxWidth: 30,
-          textAlign: TextAlign.center,
-        );
-      }
-
-      final showDateLabel = i % labelStep == 0 || i == actualOffsets.length - 1;
-
-      if (showDateLabel) {
-        _drawText(
-          canvas: canvas,
-          text: actualPoints[i].label,
-          offset: Offset(offset.dx - 15, chartRect.bottom + 10),
-          color: textColor,
-          fontSize: 8,
-          maxWidth: 30,
-          textAlign: TextAlign.center,
-        );
-      }
-    }
-  }
-
-  void _drawDashedPath(
-    Canvas canvas,
-    Path path,
-    Paint paint, {
-    double dashWidth = 7,
-    double dashSpace = 4,
-  }) {
-    for (final metric in path.computeMetrics()) {
-      double distance = 0;
-
-      while (distance < metric.length) {
-        final nextDistance = math.min(distance + dashWidth, metric.length);
-        final extractPath = metric.extractPath(distance, nextDistance);
-
-        canvas.drawPath(extractPath, paint);
-
-        distance += dashWidth + dashSpace;
-      }
-    }
-  }
-
-  void _drawText({
-    required Canvas canvas,
-    required String text,
-    required Offset offset,
-    required Color color,
-    required double fontSize,
-    required double maxWidth,
-    TextAlign textAlign = TextAlign.left,
-  }) {
-    final textSpan = TextSpan(
-      text: text,
-      style: TextStyle(
-        color: color,
-        fontSize: fontSize,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.ltr,
-      textAlign: textAlign,
-      maxLines: 1,
-    );
-
-    textPainter.layout(maxWidth: maxWidth);
-    textPainter.paint(canvas, offset);
   }
 
   @override
-  bool shouldRepaint(covariant _TrendLineChartPainter oldDelegate) {
-    return oldDelegate.actualPoints != actualPoints ||
-        oldDelegate.regressionResult != regressionResult ||
-        oldDelegate.actualColor != actualColor ||
-        oldDelegate.trendColor != trendColor ||
-        oldDelegate.gridColor != gridColor ||
-        oldDelegate.textColor != textColor;
+  bool shouldRepaint(
+    covariant _TrendChartPainter oldDelegate,
+  ) {
+    return true;
   }
 }
 
-class _PredictionLineChartPainter extends CustomPainter {
-  final List<_TrendChartPoint> predictionPoints;
-  final Color predictionColor;
-  final Color forecastAreaColor;
-  final Color gridColor;
-  final Color textColor;
+class _PredictionChartPainter extends CustomPainter {
+  final List<_TrendPoint> points;
 
-  _PredictionLineChartPainter({
-    required this.predictionPoints,
-    required this.predictionColor,
-    required this.forecastAreaColor,
-    required this.gridColor,
-    required this.textColor,
-  });
+  const _PredictionChartPainter(this.points);
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (predictionPoints.isEmpty) return;
+  void paint(
+    Canvas canvas,
+    Size size,
+  ) {
+    if (points.isEmpty) {
+      return;
+    }
 
-    final chartRect = Rect.fromLTWH(
-      36,
-      26,
-      size.width - 46,
-      size.height - 62,
+    final rect = Rect.fromLTWH(
+      44,
+      18,
+      math
+          .max(
+            1,
+            size.width - 58,
+          )
+          .toDouble(),
+      math
+          .max(
+            1,
+            size.height - 58,
+          )
+          .toDouble(),
     );
 
-    final maxPredictionValue = predictionPoints.fold<double>(
+    var maxValue = points.fold<double>(
       0,
-      (maxValue, item) => math.max(maxValue, item.value),
+      (current, point) {
+        return math.max(
+          current,
+          point.value,
+        );
+      },
     );
 
-    final maxValue = maxPredictionValue <= 0 ? 1.0 : maxPredictionValue * 1.25;
+    maxValue = maxValue <= 0 ? 1.0 : maxValue * 1.15;
 
-    final gridPaint = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1;
-
-    final axisPaint = Paint()
-      ..color = Colors.black.withOpacity(0.28)
-      ..strokeWidth = 1.2;
-
-    final predictionPaint = Paint()
-      ..color = predictionColor
-      ..strokeWidth = 2.6
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final predictionPointPaint = Paint()
-      ..color = predictionColor
-      ..style = PaintingStyle.fill;
-
-    final predictionHaloPaint = Paint()
-      ..color = predictionColor.withOpacity(0.13)
-      ..style = PaintingStyle.fill;
-
-    double getX(int index) {
-      if (predictionPoints.length == 1) return chartRect.center.dx;
-
-      return chartRect.left +
-          (chartRect.width / (predictionPoints.length - 1)) * index;
-    }
-
-    double getY(double value) {
-      return chartRect.bottom - ((value / maxValue) * chartRect.height);
-    }
-
-    canvas.drawRect(
-      chartRect,
-      Paint()
-        ..color = forecastAreaColor.withOpacity(0.75)
-        ..style = PaintingStyle.fill,
+    _drawGrid(
+      canvas,
+      rect,
+      maxValue,
     );
 
-    for (int i = 0; i <= 4; i++) {
-      final y = chartRect.top + (chartRect.height / 4) * i;
-
-      canvas.drawLine(
-        Offset(chartRect.left, y),
-        Offset(chartRect.right, y),
-        gridPaint,
-      );
-
-      final labelValue = maxValue - ((maxValue / 4) * i);
-
-      _drawText(
-        canvas: canvas,
-        text: labelValue.round().toString(),
-        offset: Offset(0, y - 8),
-        color: textColor,
-        fontSize: 9,
-        maxWidth: 30,
-        textAlign: TextAlign.right,
-      );
-    }
-
-    canvas.drawLine(
-      Offset(chartRect.left, chartRect.bottom),
-      Offset(chartRect.right, chartRect.bottom),
-      axisPaint,
+    _drawLabels(
+      canvas,
+      rect,
+      points,
+      showAll: true,
     );
 
-    canvas.drawLine(
-      Offset(chartRect.left, chartRect.top),
-      Offset(chartRect.left, chartRect.bottom),
-      axisPaint,
-    );
+    final offsets = <Offset>[];
 
-    final predictionOffsets = <Offset>[];
-
-    for (int i = 0; i < predictionPoints.length; i++) {
-      predictionOffsets.add(
-        Offset(
-          getX(i),
-          getY(predictionPoints[i].value),
+    for (var index = 0; index < points.length; index++) {
+      offsets.add(
+        _offset(
+          index,
+          points.length,
+          points[index].value,
+          maxValue,
+          rect,
         ),
       );
     }
 
-    if (predictionOffsets.length > 1) {
-      final predictionPath = Path();
-
-      for (int i = 0; i < predictionOffsets.length; i++) {
-        if (i == 0) {
-          predictionPath.moveTo(
-            predictionOffsets[i].dx,
-            predictionOffsets[i].dy,
-          );
-        } else {
-          predictionPath.lineTo(
-            predictionOffsets[i].dx,
-            predictionOffsets[i].dy,
-          );
-        }
-      }
-
-      canvas.drawPath(predictionPath, predictionPaint);
-    }
-
-    for (int i = 0; i < predictionOffsets.length; i++) {
-      final offset = predictionOffsets[i];
-
-      canvas.drawCircle(offset, 6, predictionHaloPaint);
-      canvas.drawCircle(offset, 3.8, predictionPointPaint);
-
-      _drawText(
-        canvas: canvas,
-        text: predictionPoints[i].value.round().toString(),
-        offset: Offset(offset.dx - 15, offset.dy - 22),
-        color: predictionColor,
-        fontSize: 8.5,
-        maxWidth: 30,
-        textAlign: TextAlign.center,
-      );
-
-      _drawText(
-        canvas: canvas,
-        text: predictionPoints[i].label,
-        offset: Offset(offset.dx - 15, chartRect.bottom + 10),
-        color: textColor,
-        fontSize: 8,
-        maxWidth: 30,
-        textAlign: TextAlign.center,
-      );
-    }
-  }
-
-  void _drawText({
-    required Canvas canvas,
-    required String text,
-    required Offset offset,
-    required Color color,
-    required double fontSize,
-    required double maxWidth,
-    TextAlign textAlign = TextAlign.left,
-  }) {
-    final textSpan = TextSpan(
-      text: text,
-      style: TextStyle(
-        color: color,
-        fontSize: fontSize,
-        fontWeight: FontWeight.w600,
-      ),
+    _drawSolidPath(
+      canvas,
+      offsets,
+      Colors.deepPurple.shade500,
     );
 
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.ltr,
-      textAlign: textAlign,
-      maxLines: 1,
-    );
+    final paint = Paint()..color = Colors.deepPurple.shade500;
 
-    textPainter.layout(maxWidth: maxWidth);
-    textPainter.paint(canvas, offset);
+    for (final point in offsets) {
+      canvas.drawCircle(
+        point,
+        3.4,
+        paint,
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _PredictionLineChartPainter oldDelegate) {
-    return oldDelegate.predictionPoints != predictionPoints ||
-        oldDelegate.predictionColor != predictionColor ||
-        oldDelegate.forecastAreaColor != forecastAreaColor ||
-        oldDelegate.gridColor != gridColor ||
-        oldDelegate.textColor != textColor;
+  bool shouldRepaint(
+    covariant _PredictionChartPainter oldDelegate,
+  ) {
+    return true;
+  }
+}
+
+Offset _offset(
+  int index,
+  int total,
+  double value,
+  double maxValue,
+  Rect rect,
+) {
+  final xRatio = total <= 1 ? 0.5 : index / (total - 1);
+
+  final yRatio = (value / maxValue)
+      .clamp(
+        0.0,
+        1.0,
+      )
+      .toDouble();
+
+  return Offset(
+    rect.left + rect.width * xRatio,
+    rect.bottom - rect.height * yRatio,
+  );
+}
+
+void _drawGrid(
+  Canvas canvas,
+  Rect rect,
+  double maxValue,
+) {
+  final paint = Paint()
+    ..color = Colors.black.withOpacity(0.11)
+    ..strokeWidth = 1;
+
+  for (var index = 0; index <= 4; index++) {
+    final ratio = index / 4;
+    final y = rect.bottom - rect.height * ratio;
+
+    canvas.drawLine(
+      Offset(rect.left, y),
+      Offset(rect.right, y),
+      paint,
+    );
+
+    final text = TextPainter(
+      text: TextSpan(
+        text: '${(maxValue * ratio).round()}',
+        style: const TextStyle(
+          color: Colors.black54,
+          fontSize: 9,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    text.paint(
+      canvas,
+      Offset(
+        rect.left - text.width - 6,
+        y - text.height / 2,
+      ),
+    );
+  }
+}
+
+void _drawVerticalGuides(
+  Canvas canvas,
+  Rect rect,
+  int count,
+) {
+  final paint = Paint()
+    ..color = Colors.black.withOpacity(0.055)
+    ..strokeWidth = 1;
+
+  for (var index = 0; index < count; index++) {
+    final ratio = count <= 1 ? 0.5 : index / (count - 1);
+
+    final x = rect.left + rect.width * ratio;
+
+    canvas.drawLine(
+      Offset(x, rect.top),
+      Offset(x, rect.bottom),
+      paint,
+    );
+  }
+}
+
+void _drawLabels(
+  Canvas canvas,
+  Rect rect,
+  List<_TrendPoint> points, {
+  required bool showAll,
+}) {
+  final indexes = <int>{};
+
+  if (showAll || points.length <= 7) {
+    for (var index = 0; index < points.length; index++) {
+      indexes.add(index);
+    }
+  } else {
+    for (var index = 0; index < 6; index++) {
+      indexes.add(
+        ((points.length - 1) * index / 5).round(),
+      );
+    }
+  }
+
+  for (final index in indexes) {
+    final ratio = points.length <= 1 ? 0.5 : index / (points.length - 1);
+
+    final x = rect.left + rect.width * ratio;
+
+    final text = TextPainter(
+      text: TextSpan(
+        text: points[index].label,
+        style: const TextStyle(
+          color: Colors.black54,
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    )..layout(
+        maxWidth: 44,
+      );
+
+    final left = (x - text.width / 2).clamp(
+      rect.left - 8,
+      rect.right - text.width + 8,
+    );
+
+    text.paint(
+      canvas,
+      Offset(
+        left.toDouble(),
+        rect.bottom + 7,
+      ),
+    );
+  }
+}
+
+void _drawSolidPath(
+  Canvas canvas,
+  List<Offset> points,
+  Color color,
+) {
+  if (points.isEmpty) {
+    return;
+  }
+
+  final path = Path()
+    ..moveTo(
+      points.first.dx,
+      points.first.dy,
+    );
+
+  for (final point in points.skip(1)) {
+    path.lineTo(
+      point.dx,
+      point.dy,
+    );
+  }
+
+  canvas.drawPath(
+    path,
+    Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round,
+  );
+}
+
+void _drawDashedPath(
+  Canvas canvas,
+  List<Offset> points,
+  Color color,
+) {
+  if (points.length < 2) {
+    return;
+  }
+
+  final paint = Paint()
+    ..color = color
+    ..strokeWidth = 2.4
+    ..strokeCap = StrokeCap.round;
+
+  for (var index = 0; index < points.length - 1; index++) {
+    final start = points[index];
+    final end = points[index + 1];
+    final delta = end - start;
+    final distance = delta.distance;
+
+    if (distance == 0) {
+      continue;
+    }
+
+    final direction = delta / distance;
+    var travelled = 0.0;
+
+    while (travelled < distance) {
+      final dashEnd = math.min(
+        travelled + 7,
+        distance,
+      );
+
+      canvas.drawLine(
+        start + direction * travelled,
+        start + direction * dashEnd,
+        paint,
+      );
+
+      travelled += 12;
+    }
   }
 }

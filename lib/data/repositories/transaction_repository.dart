@@ -85,6 +85,44 @@ class TransactionRepository {
     });
   }
 
+  Stream<List<TransactionModel>> getTransactionsByDateRangeStream({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) {
+    final cleanStartDate = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+    );
+
+    final cleanEndDate = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+      23,
+      59,
+      59,
+      999,
+    );
+
+    return _transactionsCollection
+        .where(
+          'createdAt',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(cleanStartDate),
+        )
+        .where(
+          'createdAt',
+          isLessThanOrEqualTo: Timestamp.fromDate(cleanEndDate),
+        )
+        .orderBy('createdAt')
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        return TransactionModel.fromMap(doc.id, doc.data());
+      }).toList();
+    });
+  }
+
   Future<TransactionPageResult> getTransactionsPage({
     String? productId,
     String? type,

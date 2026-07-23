@@ -2,7 +2,7 @@
 <uses-permission android:name="android.permission.CAMERA" />
 
     <application
-        android:label="stok_abunawas"
+        android:label="stok abunawas"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

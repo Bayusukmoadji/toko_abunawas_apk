@@ -28,6 +28,8 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^2.0.0
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.3.10
 
 flutter:
   uses-material-design: true
@@ -39,3 +41,4 @@ flutter:
     - assets/stockout/
     - assets/batch/
     - assets/transaction/
+    - assets/branding/

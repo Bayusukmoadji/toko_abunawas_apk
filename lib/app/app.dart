@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../core/theme/app_theme.dart';
 import '../features/auth/login_page.dart';
+import '../features/splash/animated_splash_page.dart';
 
 class StokAbunawasApp extends StatelessWidget {
   const StokAbunawasApp({super.key});
@@ -8,14 +8,17 @@ class StokAbunawasApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
       title: 'Stok Abunawas',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: AppTheme.primaryGreen),
-        scaffoldBackgroundColor: AppTheme.background,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF038E1B),
+        ),
         useMaterial3: true,
       ),
-      home: const LoginPage(),
+      home: AnimatedSplashPage(
+        nextPage: LoginPage(),
+      ),
     );
   }
 }

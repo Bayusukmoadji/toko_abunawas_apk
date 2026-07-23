@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../features/auth/login_page.dart';
-import '../features/splash/animated_splash_page.dart';
 
 class StokAbunawasApp extends StatelessWidget {
   const StokAbunawasApp({super.key});
@@ -17,9 +16,7 @@ class StokAbunawasApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const AnimatedSplashPage(
-        nextPage: LoginPage(),
-      ),
+      home: const LoginPage(),
     );
   }
 }

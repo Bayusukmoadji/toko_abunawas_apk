@@ -54,3 +54,19 @@ firebase_import_python/.venv/
 
 # Python virtual environment
 firebase_import_python/.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Firebase Admin credentials
+serviceAccountKey.json
+**/serviceAccountKey.json
+*firebase-adminsdk*.json
+
+# Firestore backup / audit output
+backup_*.json
+audit_*_report.txt
+*_report.txt

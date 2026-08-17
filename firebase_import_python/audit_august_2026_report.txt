@@ -1,0 +1,207 @@
+AUDIT FIRESTORE AGUSTUS 2026 — READ ONLY
+========================================
+Script ini TIDAK melakukan set/update/delete pada Firestore.
+
+Excel Agustus: 241 baris transaksi valid
+Excel total stok masuk : 2.471
+Excel total stok keluar: 2.281
+
+Membaca Firestore...
+products=11, batches=545, transactions=2233, locations=40, counters=11
+
+RINGKASAN TRANSAKSI FIRESTORE AGUSTUS
+-------------------------------------
+Dokumen transaksi Agustus: 19
+  stock_in docs : 10
+  stock_out docs: 9
+Total qty stock_in : 137
+Total qty stock_out: 97
+Rentang tanggal: 02/08/2026 s.d. 14/08/2026
+
+Sumber/performedBy transaksi Agustus:
+- BxHQT2fq8ChmFtPeXvHVXlxJErF3: 19 dokumen
+
+PERBANDINGAN FIRESTORE VS EXCEL (tanggal + produk + tipe)
+-------------------------------------------------------
+Cocok persis : 0 kelompok
+Belum ada    : 237 kelompok
+Berbeda qty  : 4 kelompok
+Ekstra DB    : 8 kelompok
+
+BELUM ADA DI FIRESTORE:
+- 2026-08-01 | Beras Walet | stock_in | Excel=58 | Firestore=0 | selisih=-58
+- 2026-08-01 | Beras Walet | stock_out | Excel=15 | Firestore=0 | selisih=-15
+- 2026-08-01 | Karya Makmur | stock_in | Excel=36 | Firestore=0 | selisih=-36
+- 2026-08-01 | Karya Makmur | stock_out | Excel=6 | Firestore=0 | selisih=-6
+- 2026-08-01 | Pandan Wangi | stock_in | Excel=50 | Firestore=0 | selisih=-50
+- 2026-08-01 | Pandan Wangi | stock_out | Excel=8 | Firestore=0 | selisih=-8
+- 2026-08-01 | Ramos | stock_in | Excel=70 | Firestore=0 | selisih=-70
+- 2026-08-01 | Ramos | stock_out | Excel=20 | Firestore=0 | selisih=-20
+- 2026-08-01 | Rojo Lele | stock_in | Excel=60 | Firestore=0 | selisih=-60
+- 2026-08-01 | Rojo Lele | stock_out | Excel=14 | Firestore=0 | selisih=-14
+- 2026-08-01 | Sumber Raya | stock_in | Excel=50 | Firestore=0 | selisih=-50
+- 2026-08-01 | Sumber Raya | stock_out | Excel=15 | Firestore=0 | selisih=-15
+- 2026-08-02 | BMW | stock_in | Excel=63 | Firestore=0 | selisih=-63
+- 2026-08-02 | Cap Kembang | stock_in | Excel=42 | Firestore=0 | selisih=-42
+- 2026-08-02 | Cap Kembang | stock_out | Excel=9 | Firestore=0 | selisih=-9
+- 2026-08-02 | Ir Cap Mercy | stock_out | Excel=12 | Firestore=0 | selisih=-12
+- 2026-08-02 | Pandan Wangi | stock_out | Excel=13 | Firestore=0 | selisih=-13
+- 2026-08-02 | Sumber Raya | stock_out | Excel=6 | Firestore=0 | selisih=-6
+- 2026-08-03 | BMW | stock_out | Excel=15 | Firestore=0 | selisih=-15
+- 2026-08-03 | Cap Kembang | stock_out | Excel=5 | Firestore=0 | selisih=-5
+- 2026-08-03 | Karya Makmur | stock_out | Excel=5 | Firestore=0 | selisih=-5
+- 2026-08-03 | Pandan Wangi | stock_out | Excel=14 | Firestore=0 | selisih=-14
+- 2026-08-03 | Ramos | stock_out | Excel=11 | Firestore=0 | selisih=-11
+- 2026-08-03 | Rojo Lele | stock_out | Excel=17 | Firestore=0 | selisih=-17
+- 2026-08-04 | BMW | stock_out | Excel=13 | Firestore=0 | selisih=-13
+- 2026-08-04 | Ir Cap Mercy | stock_out | Excel=6 | Firestore=0 | selisih=-6
+- 2026-08-04 | Pandan Wangi | stock_in | Excel=30 | Firestore=0 | selisih=-30
+- 2026-08-04 | Pandan Wangi | stock_out | Excel=16 | Firestore=0 | selisih=-16
+- 2026-08-04 | Ramos | stock_in | Excel=36 | Firestore=0 | selisih=-36
+- 2026-08-04 | Ramos | stock_out | Excel=27 | Firestore=0 | selisih=-27
+- 2026-08-04 | Rojo Lele | stock_in | Excel=49 | Firestore=0 | selisih=-49
+- 2026-08-04 | Rojo Lele | stock_out | Excel=22 | Firestore=0 | selisih=-22
+- 2026-08-04 | Sumber Raya | stock_out | Excel=18 | Firestore=0 | selisih=-18
+- 2026-08-05 | Beras Walet | stock_out | Excel=9 | Firestore=0 | selisih=-9
+- 2026-08-05 | Ir Cap Mercy | stock_out | Excel=9 | Firestore=0 | selisih=-9
+- 2026-08-05 | Pandan Wangi | stock_out | Excel=9 | Firestore=0 | selisih=-9
+- 2026-08-05 | Ramos | stock_out | Excel=15 | Firestore=0 | selisih=-15
+- 2026-08-05 | Rojo Lele | stock_out | Excel=16 | Firestore=0 | selisih=-16
+- 2026-08-05 | Sumber Raya | stock_in | Excel=41 | Firestore=0 | selisih=-41
+- 2026-08-05 | Sumber Raya | stock_out | Excel=5 | Firestore=0 | selisih=-5
+- 2026-08-06 | Beras Walet | stock_out | Excel=11 | Firestore=0 | selisih=-11
+- 2026-08-06 | BMW | stock_in | Excel=41 | Firestore=0 | selisih=-41
+- 2026-08-06 | BMW | stock_out | Excel=11 | Firestore=0 | selisih=-11
+- 2026-08-06 | Cap Kembang | stock_out | Excel=4 | Firestore=0 | selisih=-4
+- 2026-08-06 | Pandan Wangi | stock_in | Excel=24 | Firestore=0 | selisih=-24
+- 2026-08-06 | Pandan Wangi | stock_out | Excel=14 | Firestore=0 | selisih=-14
+- 2026-08-06 | Ramos | stock_out | Excel=18 | Firestore=0 | selisih=-18
+- 2026-08-06 | Rojo Lele | stock_out | Excel=18 | Firestore=0 | selisih=-18
+- 2026-08-07 | Beras Walet | stock_out | Excel=9 | Firestore=0 | selisih=-9
+- 2026-08-07 | Cap Kembang | stock_out | Excel=6 | Firestore=0 | selisih=-6
+- 2026-08-07 | Ir Cap Mercy | stock_out | Excel=10 | Firestore=0 | selisih=-10
+- 2026-08-07 | Karya Makmur | stock_out | Excel=10 | Firestore=0 | selisih=-10
+- 2026-08-07 | Keraton | stock_in | Excel=25 | Firestore=0 | selisih=-25
+- 2026-08-07 | Keraton | stock_out | Excel=3 | Firestore=0 | selisih=-3
+- 2026-08-07 | Ramos | stock_in | Excel=50 | Firestore=0 | selisih=-50
+- 2026-08-07 | Ramos | stock_out | Excel=22 | Firestore=0 | selisih=-22
+- 2026-08-08 | Beras Walet | stock_in | Excel=51 | Firestore=0 | selisih=-51
+- 2026-08-08 | Beras Walet | stock_out | Excel=14 | Firestore=0 | selisih=-14
+- 2026-08-08 | Ir Cap Mercy | stock_in | Excel=30 | Firestore=0 | selisih=-30
+- 2026-08-08 | Ir Cap Mercy | stock_out | Excel=8 | Firestore=0 | selisih=-8
+- 2026-08-08 | Keraton | stock_out | Excel=8 | Firestore=0 | selisih=-8
+- 2026-08-08 | Pandan Wangi | stock_out | Excel=16 | Firestore=0 | selisih=-16
+- 2026-08-08 | Ramos | stock_out | Excel=12 | Firestore=0 | selisih=-12
+- 2026-08-08 | Sumber Raya | stock_out | Excel=8 | Firestore=0 | selisih=-8
+- 2026-08-09 | Beras Walet | stock_out | Excel=16 | Firestore=0 | selisih=-16
+- 2026-08-09 | Cap Kembang | stock_out | Excel=12 | Firestore=0 | selisih=-12
+- 2026-08-09 | Ir Cap Mercy | stock_out | Excel=13 | Firestore=0 | selisih=-13
+- 2026-08-09 | Ramos | stock_in | Excel=42 | Firestore=0 | selisih=-42
+- 2026-08-09 | Ramos | stock_out | Excel=25 | Firestore=0 | selisih=-25
+- 2026-08-09 | Sumber Raya | stock_out | Excel=15 | Firestore=0 | selisih=-15
+- 2026-08-10 | Beras Walet | stock_out | Excel=16 | Firestore=0 | selisih=-16
+- 2026-08-10 | BMW | stock_out | Excel=21 | Firestore=0 | selisih=-21
+- 2026-08-10 | Cap Kembang | stock_in | Excel=33 | Firestore=0 | selisih=-33
+- 2026-08-10 | Cap Kembang | stock_out | Excel=12 | Firestore=0 | selisih=-12
+- 2026-08-10 | Keraton | stock_out | Excel=4 | Firestore=0 | selisih=-4
+- 2026-08-10 | Ramos | stock_out | Excel=22 | Firestore=0 | selisih=-22
+- 2026-08-10 | Rojo Lele | stock_in | Excel=52 | Firestore=0 | selisih=-52
+- 2026-08-10 | Rojo Lele | stock_out | Excel=22 | Firestore=0 | selisih=-22
+- 2026-08-11 | Beras Walet | stock_in | Excel=37 | Firestore=0 | selisih=-37
+- 2026-08-11 | Beras Walet | stock_out | Excel=19 | Firestore=0 | selisih=-19
+- 2026-08-11 | BMW | stock_in | Excel=39 | Firestore=0 | selisih=-39
+- 2026-08-11 | BMW | stock_out | Excel=21 | Firestore=0 | selisih=-21
+- 2026-08-11 | Cap Kembang | stock_out | Excel=7 | Firestore=0 | selisih=-7
+- 2026-08-11 | Karya Makmur | stock_out | Excel=8 | Firestore=0 | selisih=-8
+- 2026-08-11 | Ramos | stock_in | Excel=42 | Firestore=0 | selisih=-42
+- 2026-08-11 | Ramos | stock_out | Excel=20 | Firestore=0 | selisih=-20
+- 2026-08-11 | Rojo Lele | stock_out | Excel=16 | Firestore=0 | selisih=-16
+- 2026-08-11 | Sumber Raya | stock_out | Excel=16 | Firestore=0 | selisih=-16
+- 2026-08-12 | Beras Walet | stock_out | Excel=15 | Firestore=0 | selisih=-15
+- 2026-08-12 | BMW | stock_out | Excel=11 | Firestore=0 | selisih=-11
+- 2026-08-12 | Cap Kembang | stock_out | Excel=11 | Firestore=0 | selisih=-11
+- 2026-08-12 | Ir Cap Mercy | stock_in | Excel=27 | Firestore=0 | selisih=-27
+- 2026-08-12 | Ir Cap Mercy | stock_out | Excel=17 | Firestore=0 | selisih=-17
+- 2026-08-12 | Karya Makmur | stock_in | Excel=28 | Firestore=0 | selisih=-28
+- 2026-08-12 | Karya Makmur | stock_out | Excel=4 | Firestore=0 | selisih=-4
+- 2026-08-12 | Pandan Wangi | stock_in | Excel=32 | Firestore=0 | selisih=-32
+- 2026-08-12 | Pandan Wangi | stock_out | Excel=11 | Firestore=0 | selisih=-11
+- 2026-08-12 | Ramos | stock_out | Excel=14 | Firestore=0 | selisih=-14
+- 2026-08-13 | Beras Walet | stock_in | Excel=32 | Firestore=0 | selisih=-32
+- 2026-08-13 | Beras Walet | stock_out | Excel=17 | Firestore=0 | selisih=-17
+... 137 kelompok lain tidak ditampilkan
+
+QTY BERBEDA:
+- 2026-08-02 | BMW | stock_out | Excel=19 | Firestore=11 | selisih=-8
+- 2026-08-02 | Ir Cap Mercy | stock_in | Excel=43 | Firestore=20 | selisih=-23
+- 2026-08-02 | Rojo Lele | stock_out | Excel=17 | Firestore=18 | selisih=+1
+- 2026-08-14 | Beras Walet | stock_out | Excel=13 | Firestore=2 | selisih=-11
+
+ADA DI FIRESTORE TAPI TIDAK ADA DI EXCEL:
+- 2026-08-02 | beras pengujian premium | stock_in | Excel=0 | Firestore=35 | selisih=+35
+- 2026-08-02 | beras pengujian premium | stock_out | Excel=0 | Firestore=30 | selisih=+30
+- 2026-08-02 | Beras Walet | stock_in | Excel=0 | Firestore=15 | selisih=+15
+- 2026-08-02 | Pandan Wangi | stock_in | Excel=0 | Firestore=25 | selisih=+25
+- 2026-08-02 | Ramos | stock_in | Excel=0 | Firestore=20 | selisih=+20
+- 2026-08-02 | Ramos | stock_out | Excel=0 | Firestore=36 | selisih=+36
+- 2026-08-02 | Sumber Raya | stock_in | Excel=0 | Firestore=10 | selisih=+10
+- 2026-08-14 | Beras Walet | stock_in | Excel=0 | Firestore=12 | selisih=+12
+
+KANDIDAT DUPLIKAT SEMANTIK
+-------------------------
+- tidak ditemukan fingerprint transaksi identik
+
+INTEGRITAS SALDO PRODUK vs BATCH AKTIF
+-------------------------------------
+✓ Semua products.totalStock sama dengan jumlah remainingQty batch aktif.
+
+INTEGRITAS LOKASI BATCH AKTIF
+----------------------------
+✓ Tidak ada satu lokasi yang dipakai oleh lebih dari satu batch aktif.
+
+✓ storage_locations konsisten dengan batch aktif.
+
+BATCH YANG DITERIMA PADA AGUSTUS
+-------------------------------
+Jumlah batch receivedAt Agustus: 10
+Total initialQty batch Agustus : 137
+- 02/08/2026 | Beras Walet | BATCH-20260802-BR-001-062 | initial=15 | remaining=15 | active | C4
+- 02/08/2026 | Ir Cap Mercy | BATCH-20260802-BR-004-045 | initial=20 | remaining=20 | active | D5
+- 02/08/2026 | Pandan Wangi | BATCH-20260802-BR-007-063 | initial=10 | remaining=10 | active | D3
+- 02/08/2026 | Pandan Wangi | BATCH-20260802-BR-007-064 | initial=15 | remaining=15 | active | D4
+- 02/08/2026 | Ramos | BATCH-20260802-BR-008-077 | initial=20 | remaining=20 | active | C2
+- 02/08/2026 | Sumber Raya | BATCH-20260802-BR-010-048 | initial=10 | remaining=10 | active | B9
+- 02/08/2026 | beras pengujian premium | BATCH-20260802-BR_TST_001-004 | initial=10 | remaining=0 | empty | A1
+- 02/08/2026 | beras pengujian premium | BATCH-20260802-BR_TST_001-005 | initial=15 | remaining=15 | active | A5
+- 02/08/2026 | beras pengujian premium | BATCH-20260802-BR_TST_001-006 | initial=10 | remaining=10 | active | X1
+- 14/08/2026 | Beras Walet | BATCH-20260814-BR-001-063 | initial=12 | remaining=12 | active | A1
+
+SAMPEL DOKUMEN TRANSAKSI AGUSTUS
+--------------------------------
+- 02/08/2026 02:13 | stock_out | BMW | qty=6 | batch=BATCH-20260721-BR-002-046 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=Ds1AqEQv7NdTqmWP8awL
+- 02/08/2026 02:14 | stock_out | BMW | qty=5 | batch=BATCH-20260721-BR-002-046 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=jQEhzIUjs2NETbn5wdFl
+- 02/08/2026 02:42 | stock_out | Rojo Lele | qty=18 | batch=BATCH-20260718-BR-009-063 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=S1xrOPN6L0xBSQRWxA4a
+- 02/08/2026 02:44 | stock_out | Ramos | qty=10 | batch=BATCH-20260722-BR-008-076 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=y468TQM90hayr68GngRv
+- 02/08/2026 02:45 | stock_out | Ramos | qty=26 | batch=BATCH-20260729-BR-008-075 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=d87zLuChluspasXguDAX
+- 02/08/2026 02:46 | stock_out | beras pengujian premium | qty=5 | batch=BATCH-20260601-BR_TST_001-003 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=MWqA5J4Sxjk96EzARP9T
+- 02/08/2026 02:53 | stock_in | beras pengujian premium | qty=10 | batch=BATCH-20260802-BR_TST_001-004 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR_TST_001-004
+- 02/08/2026 02:54 | stock_in | Sumber Raya | qty=10 | batch=BATCH-20260802-BR-010-048 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR-010-048
+- 02/08/2026 02:54 | stock_in | Ramos | qty=20 | batch=BATCH-20260802-BR-008-077 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR-008-077
+- 02/08/2026 02:54 | stock_in | Beras Walet | qty=15 | batch=BATCH-20260802-BR-001-062 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR-001-062
+- 02/08/2026 02:54 | stock_in | Pandan Wangi | qty=10 | batch=BATCH-20260802-BR-007-063 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR-007-063
+- 02/08/2026 02:55 | stock_in | Pandan Wangi | qty=15 | batch=BATCH-20260802-BR-007-064 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR-007-064
+- 02/08/2026 02:55 | stock_in | Ir Cap Mercy | qty=20 | batch=BATCH-20260802-BR-004-045 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR-004-045
+- 02/08/2026 02:55 | stock_in | beras pengujian premium | qty=15 | batch=BATCH-20260802-BR_TST_001-005 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR_TST_001-005
+- 02/08/2026 03:01 | stock_out | beras pengujian premium | qty=15 | batch=BATCH-20260730-BR_TST_001-001 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=wKEY3vsiZiQwySYpYTb9
+- 02/08/2026 19:05 | stock_in | beras pengujian premium | qty=10 | batch=BATCH-20260802-BR_TST_001-006 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260802-BR_TST_001-006
+- 02/08/2026 19:34 | stock_out | beras pengujian premium | qty=10 | batch=BATCH-20260802-BR_TST_001-004 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=JYiJ826i2geq58QthNnj
+- 14/08/2026 10:43 | stock_in | Beras Walet | qty=12 | batch=BATCH-20260814-BR-001-063 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=STOCK-IN-BATCH-20260814-BR-001-063
+- 14/08/2026 10:45 | stock_out | Beras Walet | qty=2 | batch=BATCH-20260716-BR-001-059 | by=BxHQT2fq8ChmFtPeXvHVXlxJErF3 | id=CmrFyWfFMyf2fvR7OI4M
+
+KESIMPULAN OTOMATIS
+-------------------
+- Firestore sudah berisi 19 dokumen transaksi Agustus.
+- Dari 241 kelompok Excel, 0 sudah cocok, 237 belum ada, 4 berbeda qty.
+- Ada 8 kelompok transaksi Firestore yang tidak terdapat pada Excel Agustus.
+- State stok/batch/lokasi konsisten pada pemeriksaan dasar.
+- Audit ini tidak mengubah data Firestore.

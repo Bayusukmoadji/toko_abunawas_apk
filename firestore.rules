@@ -1091,6 +1091,197 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    function isValidPackagingCondition(value) {
+  return value == 'good'
+    || value == 'problem';
+}
+
+function isValidOdorCondition(value) {
+  return value == 'normal'
+    || value == 'abnormal';
+}
+
+function isValidPestCondition(value) {
+  return value == 'none'
+    || value == 'present';
+}
+
+function isValidPhysicalCondition(value) {
+  return value == 'normal'
+    || value == 'changed';
+}
+
+function isValidBatchStorageCondition(value) {
+  return value == 'dry'
+    || value == 'humid';
+}
+
+function isNormalBatchCondition(data) {
+  return data.packagingCondition == 'good'
+    && data.odorCondition == 'normal'
+    && data.pestCondition == 'none'
+    && data.physicalCondition == 'normal'
+    && data.storageCondition == 'dry';
+}
+
+function isValidBatchConditionResult(data) {
+  return (
+      isNormalBatchCondition(data)
+      && data.resultStatus == 'normal'
+    )
+    || (
+      !isNormalBatchCondition(data)
+      && data.resultStatus == 'needs_attention'
+    );
+}
+
+function isValidBatchConditionDocument(documentId) {
+  let batchData = get(
+    /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+  ).data;
+
+  return request.resource.data.keys().hasAll([
+      'id',
+      'batchId',
+      'batchCode',
+      'productId',
+      'productName',
+      'packagingCondition',
+      'odorCondition',
+      'pestCondition',
+      'physicalCondition',
+      'storageCondition',
+      'resultStatus',
+      'findings',
+      'notes',
+      'checkedById',
+      'checkedByName',
+      'checkedAt'
+    ])
+    && request.resource.data.keys().hasOnly([
+      'id',
+      'batchId',
+      'batchCode',
+      'productId',
+      'productName',
+      'packagingCondition',
+      'odorCondition',
+      'pestCondition',
+      'physicalCondition',
+      'storageCondition',
+      'resultStatus',
+      'findings',
+      'notes',
+      'checkedById',
+      'checkedByName',
+      'checkedAt'
+    ])
+
+    && request.resource.data.id == documentId
+
+    && request.resource.data.batchId is string
+    && request.resource.data.batchId.size() > 0
+
+    && request.resource.data.batchCode is string
+    && request.resource.data.batchCode.size() > 0
+
+    && request.resource.data.productId is string
+    && request.resource.data.productId.size() > 0
+
+    && request.resource.data.productName is string
+    && request.resource.data.productName.size() > 0
+
+    && isValidPackagingCondition(
+      request.resource.data.packagingCondition
+    )
+
+    && isValidOdorCondition(
+      request.resource.data.odorCondition
+    )
+
+    && isValidPestCondition(
+      request.resource.data.pestCondition
+    )
+
+    && isValidPhysicalCondition(
+      request.resource.data.physicalCondition
+    )
+
+    && isValidBatchStorageCondition(
+      request.resource.data.storageCondition
+    )
+
+    && request.resource.data.resultStatus is string
+    && isValidBatchConditionResult(
+      request.resource.data
+    )
+
+    && request.resource.data.findings is list
+    && request.resource.data.findings.size() <= 5
+
+    && request.resource.data.notes is string
+    && request.resource.data.notes.size() <= 500
+
+    && request.resource.data.checkedById
+      == request.auth.uid
+
+    && request.resource.data.checkedByName is string
+    && request.resource.data.checkedByName.size() > 0
+
+    && request.resource.data.checkedAt is timestamp
+    && request.resource.data.checkedAt <= request.time
+
+    && batchData.id
+      == request.resource.data.batchId
+
+    && batchData.batchCode
+      == request.resource.data.batchCode
+
+    && batchData.productId
+      == request.resource.data.productId
+
+    && batchData.productName
+      == request.resource.data.productName
+
+    && batchData.status == 'active'
+
+    && batchData.remainingQty is int
+    && batchData.remainingQty > 0;
+}
+
+match /batch_condition_checks/{checkId} {
+  allow read: if isActiveUser();
+
+  allow create: if isActiveUser()
+    && isValidBatchConditionDocument(
+      checkId
+    );
+
+  allow update, delete: if false;
+}
+
+match /batch_condition_current/{batchId} {
+  allow read: if isActiveUser();
+
+  allow create: if isActiveUser()
+    && request.resource.data.batchId
+      == batchId
+    && isValidBatchConditionDocument(
+      batchId
+    );
+
+  allow update: if isActiveUser()
+    && request.resource.data.batchId
+      == batchId
+    && isValidBatchConditionDocument(
+      batchId
+    )
+    && request.resource.data.checkedAt
+      >= resource.data.checkedAt;
+
+  allow delete: if false;
+}
+
     match /import_logs/{logId} {
       allow read: if isOwner();
       allow write: if false;

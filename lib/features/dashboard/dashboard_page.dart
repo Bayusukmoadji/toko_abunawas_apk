@@ -6,12 +6,15 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_user_model.dart';
+import '../../data/models/batch_condition_check_model.dart';
 import '../../data/models/batch_model.dart';
 import '../../data/models/product_model.dart';
+import '../../data/repositories/batch_condition_repository.dart';
 import '../../data/repositories/batch_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../alerts/alerts_page.dart';
 import '../analysis/stock_trend_page.dart';
+import '../analysis/regression_validation_page.dart';
 import '../auth/login_page.dart';
 import '../history/transaction_history_page.dart';
 import '../products/product_management_page.dart';
@@ -21,6 +24,7 @@ import '../stock_in/batch_list_page.dart';
 import '../stock_in/stock_in_page.dart';
 import '../stock_out/stock_out_scan_page.dart';
 import '../users/user_management_page.dart';
+import '../condition/batch_condition_check_page.dart';
 
 class DashboardPage extends StatelessWidget {
   final AppUserModel user;
@@ -33,6 +37,8 @@ class DashboardPage extends StatelessWidget {
   final AuthService _authService = AuthService();
   final ProductRepository _productRepository = ProductRepository();
   final BatchRepository _batchRepository = BatchRepository();
+  final BatchConditionRepository _conditionRepository =
+      BatchConditionRepository();
 
   static const int oldBatchThresholdDays = 30;
   static const int almostEmptyBatchThreshold = 3;
@@ -259,6 +265,7 @@ class DashboardPage extends StatelessWidget {
   List<_DashboardAlert> _buildDashboardAlerts({
     required List<ProductModel> products,
     required List<BatchModel> batches,
+    required List<BatchConditionCheckModel> conditions,
   }) {
     final alerts = <_DashboardAlert>[];
 
@@ -266,7 +273,6 @@ class DashboardPage extends StatelessWidget {
 
     for (final product in products) {
       final actualStock = actualStockByProductId[product.id] ?? 0;
-
       final unit = _getUnit(product.unit);
 
       if (actualStock <= 0) {
@@ -274,7 +280,8 @@ class DashboardPage extends StatelessWidget {
           _DashboardAlert(
             title: 'Stok Habis',
             message: product.name,
-            detail: 'Stok saat ini 0 $unit.\nSegera lakukan penambahan stok.',
+            detail: 'Stok saat ini 0 $unit.\n'
+                'Segera lakukan penambahan stok.',
             icon: Icons.cancel_outlined,
             color: Colors.red.shade500,
             priority: 5,
@@ -298,6 +305,49 @@ class DashboardPage extends StatelessWidget {
       }
     }
 
+    final activeBatchById = <String, BatchModel>{};
+
+    for (final batch in batches) {
+      if (_isActiveBatch(batch)) {
+        activeBatchById[batch.id] = batch;
+      }
+    }
+
+    for (final condition in conditions) {
+      if (!condition.needsAttention) {
+        continue;
+      }
+
+      final batch = activeBatchById[condition.batchId];
+
+      if (batch == null) {
+        continue;
+      }
+
+      final findings = condition.findings.isEmpty
+          ? 'Terdapat kondisi yang perlu diperiksa kembali.'
+          : condition.findings.join(', ');
+
+      final checkedBy = condition.checkedByName.trim().isEmpty
+          ? '-'
+          : condition.checkedByName.trim();
+
+      alerts.add(
+        _DashboardAlert(
+          title: 'Kondisi Perlu Perhatian',
+          message: '${batch.productName} - ${batch.batchCode}',
+          detail: 'Temuan: $findings\n'
+              'Pemeriksaan: ${_formatDate(condition.checkedAt.toDate())} '
+              'oleh $checkedBy.',
+          icon: Icons.fact_check_outlined,
+          color: Colors.orange.shade800,
+          priority: 5,
+          actionType: _DashboardAlertAction.conditionCheck,
+          batch: batch,
+        ),
+      );
+    }
+
     for (final batch in batches) {
       if (!_isActiveBatch(batch)) {
         continue;
@@ -317,13 +367,14 @@ class DashboardPage extends StatelessWidget {
       if (storedDays >= oldBatchThresholdDays) {
         alerts.add(
           _DashboardAlert(
-            title: 'Batch Terlalu Lama',
+            title: 'Peringatan Usia Batch',
             message: '${batch.productName} - ${batch.batchCode}',
-            detail: 'Tersimpan $storedDays hari sejak '
+            detail: 'Usia penyimpanan $storedDays hari sejak '
                 '${_formatDate(receivedDate)}.\n'
-                'Lokasi: $location.',
-            icon: Icons.history_toggle_off,
-            color: Colors.red.shade500,
+                'Lokasi: $location. Indikator ini menunjukkan usia '
+                'penyimpanan, bukan kondisi kualitas beras.',
+            icon: Icons.access_time_rounded,
+            color: Colors.amber.shade800,
             priority: 4,
             actionType: _DashboardAlertAction.batchDetail,
             batch: batch,
@@ -349,7 +400,6 @@ class DashboardPage extends StatelessWidget {
     }
 
     final availableMainLocations = _getAvailableMainLocations(batches);
-
     final backupBatches = _getBackupBatches(batches);
 
     if (availableMainLocations.isNotEmpty && backupBatches.isNotEmpty) {
@@ -360,7 +410,6 @@ class DashboardPage extends StatelessWidget {
           : recommendedBatch.storageLocation.trim();
 
       final targetLocation = availableMainLocations.first;
-
       final unit = _getUnit(recommendedBatch.unit);
 
       alerts.add(
@@ -412,6 +461,7 @@ class DashboardPage extends StatelessWidget {
       case _DashboardAlertAction.stockOutScan:
       case _DashboardAlertAction.batchList:
       case _DashboardAlertAction.batchDetail:
+      case _DashboardAlertAction.conditionCheck:
       case _DashboardAlertAction.logout:
         return true;
 
@@ -444,6 +494,9 @@ class DashboardPage extends StatelessWidget {
         }
 
         return 'Buka Detail Batch';
+
+      case _DashboardAlertAction.conditionCheck:
+        return 'Periksa Kondisi Batch';
 
       case _DashboardAlertAction.logout:
         return 'Logout';
@@ -787,6 +840,28 @@ class DashboardPage extends StatelessWidget {
         );
         break;
 
+      case _DashboardAlertAction.conditionCheck:
+        final conditionBatch = alert.batch;
+
+        if (conditionBatch == null) {
+          _showSimpleSnackBar(
+            context: pageContext,
+            message: 'Data batch untuk pemeriksaan tidak tersedia.',
+            color: Colors.redAccent,
+          );
+
+          return;
+        }
+
+        _openPage(
+          pageContext,
+          BatchConditionCheckPage(
+            user: user,
+            initialBatch: conditionBatch,
+          ),
+        );
+        break;
+
       case _DashboardAlertAction.logout:
         await _logout(pageContext);
         break;
@@ -945,89 +1020,100 @@ class DashboardPage extends StatelessWidget {
             context,
             batchSnapshot,
           ) {
-            final hasError = productSnapshot.hasError || batchSnapshot.hasError;
+            return StreamBuilder<List<BatchConditionCheckModel>>(
+              stream: _conditionRepository.getAllCurrentConditionsStream(),
+              builder: (
+                context,
+                conditionSnapshot,
+              ) {
+                final hasError = productSnapshot.hasError ||
+                    batchSnapshot.hasError ||
+                    conditionSnapshot.hasError;
 
-            final products = productSnapshot.data ?? [];
-            final batches = batchSnapshot.data ?? [];
+                final products = productSnapshot.data ?? [];
+                final batches = batchSnapshot.data ?? [];
+                final conditions = conditionSnapshot.data ?? [];
 
-            final alerts = _buildDashboardAlerts(
-              products: products,
-              batches: batches,
-            );
+                final alerts = _buildDashboardAlerts(
+                  products: products,
+                  batches: batches,
+                  conditions: conditions,
+                );
 
-            final alertCount = alerts.length;
+                final alertCount = alerts.length;
+                final badgeText = alertCount > 99 ? '99+' : '$alertCount';
 
-            final badgeText = alertCount > 99 ? '99+' : '$alertCount';
-
-            return SizedBox(
-              width: 46,
-              height: 46,
-              child: Stack(
-                clipBehavior: Clip.none,
-                alignment: Alignment.center,
-                children: [
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 46,
-                      minHeight: 46,
-                    ),
-                    splashRadius: 24,
-                    onPressed: () {
-                      if (hasError) {
-                        _showSimpleSnackBar(
-                          context: context,
-                          message: 'Gagal memuat data peringatan.',
-                          color: Colors.red,
-                        );
-
-                        return;
-                      }
-
-                      _showAlertsBottomSheet(
-                        context: context,
-                        alerts: alerts,
-                      );
-                    },
-                    icon: const Icon(
-                      Icons.notifications_none_rounded,
-                      color: Colors.white,
-                      size: 31,
-                    ),
-                  ),
-                  if (alertCount > 0)
-                    Positioned(
-                      top: 2,
-                      right: 2,
-                      child: Container(
+                return SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      IconButton(
+                        padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(
-                          minWidth: 18,
-                          minHeight: 18,
+                          minWidth: 46,
+                          minHeight: 46,
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(99),
-                          border: Border.all(
-                            color: Colors.white,
-                            width: 1.5,
-                          ),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          badgeText,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        splashRadius: 24,
+                        onPressed: () {
+                          if (hasError) {
+                            _showSimpleSnackBar(
+                              context: context,
+                              message: 'Gagal memuat data peringatan.',
+                              color: Colors.red,
+                            );
+
+                            return;
+                          }
+
+                          _showAlertsBottomSheet(
+                            context: context,
+                            alerts: alerts,
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.notifications_none_rounded,
+                          color: Colors.white,
+                          size: 31,
                         ),
                       ),
-                    ),
-                ],
-              ),
+                      if (alertCount > 0)
+                        Positioned(
+                          top: 2,
+                          right: 2,
+                          child: Container(
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red,
+                              borderRadius: BorderRadius.circular(99),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 1.5,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              badgeText,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
             );
           },
         );
@@ -1188,9 +1274,9 @@ class DashboardPage extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Belum ada stok menipis, stok habis, batch terlalu '
-              'lama, batch hampir habis, atau pemindahan lokasi '
-              'yang perlu ditindaklanjuti.',
+              'Belum ada stok menipis, stok habis, kondisi batch yang '
+              'perlu perhatian, peringatan usia batch, batch hampir '
+              'habis, atau pemindahan lokasi yang perlu ditindaklanjuti.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.black54,
@@ -1754,6 +1840,31 @@ class DashboardPage extends StatelessWidget {
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildMaterialMenuItem(
+                      title: 'Pemeriksaan\nKondisi',
+                      icon: Icons.fact_check_outlined,
+                      iconSize: 25,
+                      onTap: () {
+                        _openPage(
+                          context,
+                          BatchConditionCheckPage(
+                            user: user,
+                          ),
+                        );
+                      },
+                    ),
+                    const Expanded(
+                      child: SizedBox(),
+                    ),
+                    const Expanded(
+                      child: SizedBox(),
+                    ),
+                  ],
+                ),
               ],
             ),
             if (_isOwner)
@@ -1845,6 +1956,29 @@ class DashboardPage extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildMaterialMenuItem(
+                        title: 'Validasi\nRegresi',
+                        icon: Icons.analytics_outlined,
+                        iconSize: 25,
+                        onTap: () {
+                          _openOwnerPage(
+                            context,
+                            const RegressionValidationPage(),
+                          );
+                        },
+                      ),
+                      const Expanded(
+                        child: SizedBox(),
+                      ),
+                      const Expanded(
+                        child: SizedBox(),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             const SizedBox(height: 10),
@@ -1920,6 +2054,7 @@ enum _DashboardAlertAction {
   stockOutScan,
   batchList,
   batchDetail,
+  conditionCheck,
   logout,
   monitoring,
   transactionHistory,

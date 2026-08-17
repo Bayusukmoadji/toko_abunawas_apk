@@ -2,11 +2,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/models/app_user_model.dart';
+import '../../data/models/batch_condition_check_model.dart';
 import '../../data/models/batch_model.dart';
 import '../../data/models/product_model.dart';
+import '../../data/repositories/batch_condition_repository.dart';
 import '../../data/repositories/batch_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../../data/repositories/user_repository.dart';
+import '../condition/batch_condition_check_page.dart';
+import '../reports/batch_condition_report_page.dart';
 import '../stock_in/batch_detail_page.dart';
 import '../stock_in/stock_in_page.dart';
 
@@ -21,6 +25,8 @@ class _AlertsPageState extends State<AlertsPage> {
   final ProductRepository _productRepository = ProductRepository();
   final BatchRepository _batchRepository = BatchRepository();
   final UserRepository _userRepository = UserRepository();
+  final BatchConditionRepository _conditionRepository =
+      BatchConditionRepository();
 
   static const int oldBatchThresholdDays = 30;
   static const int almostEmptyBatchThreshold = 3;
@@ -37,7 +43,6 @@ class _AlertsPageState extends State<AlertsPage> {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
     final year = date.year.toString();
-
     return '$day/$month/$year';
   }
 
@@ -49,45 +54,35 @@ class _AlertsPageState extends State<AlertsPage> {
     );
 
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
-    final today = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    );
-
-    return today.difference(receivedDate).inDays;
+    final result = today.difference(receivedDate).inDays;
+    return result < 0 ? 0 : result;
   }
 
   String _getUnit(String unit) {
     final cleanUnit = unit.trim();
-
     return cleanUnit.isEmpty ? 'karung' : cleanUnit;
   }
 
   bool _isActiveBatch(BatchModel batch) {
     final status = batch.status.toLowerCase().trim();
-
     return status == 'active' && batch.remainingQty > 0;
   }
 
   int _extractBatchSequence(String batchCode) {
     final parts = batchCode.trim().split('-');
-
     if (parts.isEmpty) {
       return 0;
     }
-
     return int.tryParse(parts.last.trim()) ?? 0;
   }
 
   String _getBatchCodeForSort(BatchModel batch) {
     final batchCode = batch.batchCode.trim().toUpperCase();
-
     if (batchCode.isNotEmpty) {
       return batchCode;
     }
-
     return batch.id.trim().toUpperCase();
   }
 
@@ -114,13 +109,8 @@ class _AlertsPageState extends State<AlertsPage> {
     final firstBatchCode = _getBatchCodeForSort(first);
     final secondBatchCode = _getBatchCodeForSort(second);
 
-    final firstSequence = _extractBatchSequence(
-      firstBatchCode,
-    );
-
-    final secondSequence = _extractBatchSequence(
-      secondBatchCode,
-    );
+    final firstSequence = _extractBatchSequence(firstBatchCode);
+    final secondSequence = _extractBatchSequence(secondBatchCode);
 
     if (firstSequence > 0 &&
         secondSequence > 0 &&
@@ -164,7 +154,6 @@ class _AlertsPageState extends State<AlertsPage> {
   ) {
     final result = products.where((product) {
       final actualStock = actualStockByProductId[product.id] ?? 0;
-
       return actualStock <= 0;
     }).toList();
 
@@ -212,7 +201,6 @@ class _AlertsPageState extends State<AlertsPage> {
     }).toList();
 
     result.sort(_compareBatchesForFifo);
-
     return result;
   }
 
@@ -256,6 +244,47 @@ class _AlertsPageState extends State<AlertsPage> {
     }).toList();
 
     result.sort(_compareBatchesForFifo);
+    return result;
+  }
+
+  List<_ConditionAlertItem> _getNeedsAttentionConditions({
+    required List<BatchConditionCheckModel> conditions,
+    required List<BatchModel> batches,
+  }) {
+    final activeBatchMap = <String, BatchModel>{};
+
+    for (final batch in batches) {
+      if (_isActiveBatch(batch)) {
+        activeBatchMap[batch.id] = batch;
+      }
+    }
+
+    final result = <_ConditionAlertItem>[];
+
+    for (final condition in conditions) {
+      if (!condition.needsAttention) {
+        continue;
+      }
+
+      final batch = activeBatchMap[condition.batchId];
+
+      if (batch == null) {
+        continue;
+      }
+
+      result.add(
+        _ConditionAlertItem(
+          batch: batch,
+          condition: condition,
+        ),
+      );
+    }
+
+    result.sort(
+      (first, second) => second.condition.checkedAt.compareTo(
+        first.condition.checkedAt,
+      ),
+    );
 
     return result;
   }
@@ -417,6 +446,67 @@ class _AlertsPageState extends State<AlertsPage> {
     }
   }
 
+  Future<void> _openConditionCheck(
+    BatchModel batch,
+  ) async {
+    if (_isOpeningPage) {
+      return;
+    }
+
+    setState(() {
+      _isOpeningPage = true;
+    });
+
+    try {
+      final currentUser = await _getCurrentAppUser();
+
+      if (!mounted || currentUser == null) {
+        return;
+      }
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BatchConditionCheckPage(
+            user: currentUser,
+            initialBatch: batch,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningPage = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openConditionReport() async {
+    if (_isOpeningPage) {
+      return;
+    }
+
+    setState(() {
+      _isOpeningPage = true;
+    });
+
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BatchConditionReportPage(),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningPage = false;
+        });
+      }
+    }
+  }
+
   Widget _buildCleanCard({
     required Widget child,
     EdgeInsetsGeometry? padding,
@@ -444,15 +534,89 @@ class _AlertsPageState extends State<AlertsPage> {
     );
   }
 
+  Widget _buildConditionReportButton() {
+    return Container(
+      width: double.infinity,
+      height: 46,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [
+            Color(0xFF015816),
+            Color(0xFF038E1B),
+            Color(0xFF84E977),
+          ],
+          stops: [0.0, 0.55, 1.0],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.11),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isOpeningPage
+              ? null
+              : () {
+                  _openConditionReport();
+                },
+          child: const Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: 14,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.assignment_outlined,
+                  color: Colors.white,
+                  size: 19,
+                ),
+                SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Laporan Kondisi Batch',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white,
+                  size: 12,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSummaryCard({
     required int outOfStockCount,
     required int lowStockCount,
+    required int conditionAttentionCount,
     required int oldBatchCount,
     required int almostEmptyBatchCount,
     required int locationTransferCount,
   }) {
     final totalAlerts = outOfStockCount +
         lowStockCount +
+        conditionAttentionCount +
         oldBatchCount +
         almostEmptyBatchCount +
         locationTransferCount;
@@ -490,7 +654,11 @@ class _AlertsPageState extends State<AlertsPage> {
                 value: '$lowStockCount',
               ),
               _buildSummaryRow(
-                label: 'Batch Terlalu Lama',
+                label: 'Kondisi Perlu Perhatian',
+                value: '$conditionAttentionCount',
+              ),
+              _buildSummaryRow(
+                label: 'Usia Batch ≥ $oldBatchThresholdDays Hari',
                 value: '$oldBatchCount',
               ),
               _buildSummaryRow(
@@ -980,15 +1148,157 @@ class _AlertsPageState extends State<AlertsPage> {
     );
   }
 
+  Widget _buildConditionAttentionSection(
+    List<_ConditionAlertItem> items,
+  ) {
+    if (items.isEmpty) {
+      return _buildEmptyCard(
+        icon: Icons.check_circle_outline,
+        title: 'Kondisi Batch Normal',
+        message:
+            'Tidak ada hasil pemeriksaan terbaru yang membutuhkan perhatian.',
+      );
+    }
+
+    return Column(
+      children: items.map((item) {
+        final batch = item.batch;
+        final condition = item.condition;
+
+        final location = batch.storageLocation.trim().isEmpty
+            ? '-'
+            : batch.storageLocation.trim();
+
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 12),
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.055),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.orange.withOpacity(0.22),
+              width: 1,
+            ),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _isOpeningPage
+                  ? null
+                  : () {
+                      _openConditionCheck(batch);
+                    },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 13,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 17,
+                          backgroundColor: Colors.orange.withOpacity(0.15),
+                          child: Icon(
+                            Icons.warning_amber_rounded,
+                            size: 18,
+                            color: Colors.orange.shade800,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  batch.productName,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                    height: 1.25,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  batch.batchCode,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.black45,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildStatusChip(
+                          text: 'Perlu Perhatian',
+                          color: Colors.orange.shade800,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 44),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildInfoRow(
+                            icon: Icons.fact_check_outlined,
+                            text:
+                                'Pemeriksaan terakhir: ${_formatDate(condition.checkedAt.toDate())}',
+                          ),
+                          _buildInfoRow(
+                            icon: Icons.person_outline_rounded,
+                            text: 'Pemeriksa: ${condition.checkedByName}',
+                          ),
+                          _buildInfoRow(
+                            icon: Icons.location_on_outlined,
+                            text: 'Lokasi: $location',
+                          ),
+                          if (condition.findings.isNotEmpty)
+                            _buildInfoRow(
+                              icon: Icons.warning_amber_rounded,
+                              text: 'Temuan: ${condition.findings.join(', ')}',
+                            ),
+                          if (condition.notes.trim().isNotEmpty)
+                            _buildInfoRow(
+                              icon: Icons.notes_outlined,
+                              text: 'Catatan: ${condition.notes.trim()}',
+                            ),
+                          _buildTapInstruction(
+                            text: 'Ketuk untuk melakukan pemeriksaan ulang',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildOldBatchSection(
     List<BatchModel> oldBatches,
   ) {
     if (oldBatches.isEmpty) {
       return _buildEmptyCard(
         icon: Icons.check_circle_outline,
-        title: 'Tidak Ada Batch Terlalu Lama',
-        message:
-            'Tidak ada batch aktif yang tersimpan melebihi batas $oldBatchThresholdDays hari.',
+        title: 'Tidak Ada Peringatan Usia Batch',
+        message: 'Tidak ada batch aktif yang telah mencapai usia penyimpanan '
+            '$oldBatchThresholdDays hari atau lebih.',
       );
     }
 
@@ -1009,8 +1319,8 @@ class _AlertsPageState extends State<AlertsPage> {
         return _buildBatchAlertCard(
           batch: batch,
           statusText: '$storedDays hari',
-          color: Colors.red.shade500,
-          icon: Icons.history_toggle_off,
+          color: Colors.amber.shade800,
+          icon: Icons.access_time_rounded,
           information: [
             _buildInfoRow(
               icon: Icons.calendar_today_outlined,
@@ -1037,8 +1347,8 @@ class _AlertsPageState extends State<AlertsPage> {
       return _buildEmptyCard(
         icon: Icons.check_circle_outline,
         title: 'Tidak Ada Batch Hampir Habis',
-        message:
-            'Tidak ada batch aktif dengan sisa stok $almostEmptyBatchThreshold karung atau kurang.',
+        message: 'Tidak ada batch aktif dengan sisa stok '
+            '$almostEmptyBatchThreshold karung atau kurang.',
       );
     }
 
@@ -1085,8 +1395,8 @@ class _AlertsPageState extends State<AlertsPage> {
       return _buildEmptyCard(
         icon: Icons.check_circle_outline,
         title: 'Tidak Ada Pemindahan Lokasi',
-        message:
-            'Tidak ada batch belakang gudang yang perlu dipindahkan ke lokasi utama.',
+        message: 'Tidak ada batch belakang gudang yang perlu dipindahkan '
+            'ke lokasi utama.',
       );
     }
 
@@ -1097,7 +1407,6 @@ class _AlertsPageState extends State<AlertsPage> {
         : recommendedBatch.storageLocation.trim();
 
     final targetPreview = availableMainLocations.take(5).join(', ');
-
     final remainingLocationCount = availableMainLocations.length - 5;
 
     final targetText = remainingLocationCount > 0
@@ -1194,7 +1503,8 @@ class _AlertsPageState extends State<AlertsPage> {
                       _buildInfoRow(
                         icon: Icons.inventory_2_outlined,
                         text:
-                            'Batch rekomendasi: ${recommendedBatch.productName} - ${recommendedBatch.batchCode}',
+                            'Batch rekomendasi: ${recommendedBatch.productName} - '
+                            '${recommendedBatch.batchCode}',
                       ),
                       _buildInfoRow(
                         icon: Icons.location_on_outlined,
@@ -1311,9 +1621,12 @@ class _AlertsPageState extends State<AlertsPage> {
   Widget _buildMonitoringContent({
     required List<ProductModel> products,
     required List<BatchModel> batches,
+    required List<BatchConditionCheckModel> conditions,
     required List<String> availableMainLocations,
   }) {
-    final actualStockByProductId = _getActualStockByProductId(batches);
+    final actualStockByProductId = _getActualStockByProductId(
+      batches,
+    );
 
     final outOfStockProducts = _getOutOfStockProducts(
       products,
@@ -1325,10 +1638,13 @@ class _AlertsPageState extends State<AlertsPage> {
       actualStockByProductId,
     );
 
+    final conditionAttentionItems = _getNeedsAttentionConditions(
+      conditions: conditions,
+      batches: batches,
+    );
+
     final oldBatches = _getOldBatches(batches);
-
     final almostEmptyBatches = _getAlmostEmptyBatches(batches);
-
     final backupBatches = _getBackupBatches(batches);
 
     final locationTransferCount =
@@ -1372,15 +1688,19 @@ class _AlertsPageState extends State<AlertsPage> {
                   _buildSummaryCard(
                     outOfStockCount: outOfStockProducts.length,
                     lowStockCount: lowStockProducts.length,
+                    conditionAttentionCount: conditionAttentionItems.length,
                     oldBatchCount: oldBatches.length,
                     almostEmptyBatchCount: almostEmptyBatches.length,
                     locationTransferCount: locationTransferCount,
                   ),
+                  const SizedBox(height: 14),
+                  _buildConditionReportButton(),
                   const SizedBox(height: 24),
                   _buildSectionTitle(
                     title: 'Peringatan Stok Produk',
                     subtitle:
-                        'Ketuk produk untuk membuka halaman Stok Masuk dan melakukan penambahan stok.',
+                        'Ketuk produk untuk membuka halaman Stok Masuk dan '
+                        'melakukan penambahan stok.',
                   ),
                   _buildStockAlertSection(
                     outOfStockProducts: outOfStockProducts,
@@ -1389,16 +1709,27 @@ class _AlertsPageState extends State<AlertsPage> {
                   ),
                   const SizedBox(height: 12),
                   _buildSectionTitle(
-                    title: 'Peringatan Batch Terlalu Lama',
-                    subtitle:
-                        'Batch aktif yang tersimpan $oldBatchThresholdDays hari atau lebih.',
+                    title: 'Peringatan Kondisi Batch',
+                    subtitle: 'Menampilkan batch yang berdasarkan pemeriksaan '
+                        'terbaru memiliki kondisi yang perlu diperhatikan.',
+                  ),
+                  _buildConditionAttentionSection(
+                    conditionAttentionItems,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildSectionTitle(
+                    title: 'Peringatan Usia Batch',
+                    subtitle: 'Batch aktif yang telah tersimpan '
+                        '$oldBatchThresholdDays hari atau lebih. '
+                        'Indikator ini menunjukkan usia penyimpanan, '
+                        'bukan kondisi kualitas beras.',
                   ),
                   _buildOldBatchSection(oldBatches),
                   const SizedBox(height: 12),
                   _buildSectionTitle(
                     title: 'Peringatan Batch Hampir Habis',
-                    subtitle:
-                        'Batch aktif dengan sisa stok $almostEmptyBatchThreshold karung atau kurang.',
+                    subtitle: 'Batch aktif dengan sisa stok '
+                        '$almostEmptyBatchThreshold karung atau kurang.',
                   ),
                   _buildAlmostEmptyBatchSection(
                     almostEmptyBatches,
@@ -1406,8 +1737,8 @@ class _AlertsPageState extends State<AlertsPage> {
                   const SizedBox(height: 12),
                   _buildSectionTitle(
                     title: 'Pemindahan Lokasi Batch',
-                    subtitle:
-                        'Batch aktif di X1-X5 dapat dipindahkan apabila tersedia lokasi utama yang kosong.',
+                    subtitle: 'Batch aktif di X1-X5 dapat dipindahkan apabila '
+                        'tersedia lokasi utama yang kosong.',
                   ),
                   _buildLocationTransferSection(
                     availableMainLocations: availableMainLocations,
@@ -1435,7 +1766,8 @@ class _AlertsPageState extends State<AlertsPage> {
               stream: _productRepository.getActiveProductsStream(),
               builder: (context, productSnapshot) {
                 if (productSnapshot.connectionState ==
-                    ConnectionState.waiting) {
+                        ConnectionState.waiting &&
+                    !productSnapshot.hasData) {
                   return _buildLoadingState();
                 }
 
@@ -1452,7 +1784,8 @@ class _AlertsPageState extends State<AlertsPage> {
                   stream: _batchRepository.getBatchesStream(),
                   builder: (context, batchSnapshot) {
                     if (batchSnapshot.connectionState ==
-                        ConnectionState.waiting) {
+                            ConnectionState.waiting &&
+                        !batchSnapshot.hasData) {
                       return _buildLoadingState();
                     }
 
@@ -1465,29 +1798,58 @@ class _AlertsPageState extends State<AlertsPage> {
 
                     final batches = batchSnapshot.data ?? [];
 
-                    return FutureBuilder<List<String>>(
-                      future:
-                          _batchRepository.getAvailableMainStorageLocations(),
-                      builder: (context, locationSnapshot) {
-                        if (locationSnapshot.connectionState ==
-                            ConnectionState.waiting) {
+                    return StreamBuilder<List<BatchConditionCheckModel>>(
+                      stream:
+                          _conditionRepository.getAllCurrentConditionsStream(),
+                      builder: (
+                        context,
+                        conditionSnapshot,
+                      ) {
+                        if (conditionSnapshot.connectionState ==
+                                ConnectionState.waiting &&
+                            !conditionSnapshot.hasData) {
                           return _buildLoadingState();
                         }
 
-                        if (locationSnapshot.hasError) {
+                        if (conditionSnapshot.hasError) {
                           return _buildErrorState(
-                            'Gagal memuat lokasi gudang: '
-                            '${locationSnapshot.error}',
+                            'Gagal memuat kondisi batch: '
+                            '${conditionSnapshot.error}',
                           );
                         }
 
-                        final availableMainLocations =
-                            locationSnapshot.data ?? [];
+                        final conditions = conditionSnapshot.data ?? [];
 
-                        return _buildMonitoringContent(
-                          products: products,
-                          batches: batches,
-                          availableMainLocations: availableMainLocations,
+                        return FutureBuilder<List<String>>(
+                          future: _batchRepository
+                              .getAvailableMainStorageLocations(),
+                          builder: (
+                            context,
+                            locationSnapshot,
+                          ) {
+                            if (locationSnapshot.connectionState ==
+                                    ConnectionState.waiting &&
+                                !locationSnapshot.hasData) {
+                              return _buildLoadingState();
+                            }
+
+                            if (locationSnapshot.hasError) {
+                              return _buildErrorState(
+                                'Gagal memuat lokasi gudang: '
+                                '${locationSnapshot.error}',
+                              );
+                            }
+
+                            final availableMainLocations =
+                                locationSnapshot.data ?? [];
+
+                            return _buildMonitoringContent(
+                              products: products,
+                              batches: batches,
+                              conditions: conditions,
+                              availableMainLocations: availableMainLocations,
+                            );
+                          },
                         );
                       },
                     );
@@ -1518,4 +1880,14 @@ class _AlertsPageState extends State<AlertsPage> {
       ),
     );
   }
+}
+
+class _ConditionAlertItem {
+  final BatchModel batch;
+  final BatchConditionCheckModel condition;
+
+  const _ConditionAlertItem({
+    required this.batch,
+    required this.condition,
+  });
 }

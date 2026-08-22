@@ -776,225 +776,329 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    function isValidTransactionBase(
-      transactionId
-    ) {
-      return request.resource.data.keys().hasAll([
-          'type',
-          'productId',
-          'productName',
-          'batchId',
-          'batchCode',
-          'qty',
-          'unit',
-          'performedBy',
-          'performedByName',
-          'notes',
-          'createdAt'
-        ])
-        && request.resource.data.keys().hasOnly([
-          'id',
-          'type',
-          'productId',
-          'productName',
-          'batchId',
-          'batchCode',
-          'qty',
-          'unit',
-          'performedBy',
-          'performedByName',
-          'notes',
-          'storageLocation',
-          'remainingQtyBefore',
-          'remainingQtyAfter',
-          'totalStockAfter',
-          'createdAt'
-        ])
-        && (
-          request.resource.data.type == 'stock_in'
-          || request.resource.data.type == 'stock_out'
-        )
-        && request.resource.data.productId is string
-        && request.resource.data.productName is string
-        && request.resource.data.batchId is string
-        && request.resource.data.batchCode is string
-        && request.resource.data.qty is int
-        && request.resource.data.qty > 0
-        && request.resource.data.unit is string
-        && request.resource.data.performedBy
-          == request.auth.uid
-        && request.resource.data.performedByName
+function isValidTransactionBase(transactionId) {
+  return request.resource.data.keys().hasAll([
+    'type',
+    'productId',
+    'productName',
+    'batchId',
+    'batchCode',
+    'qty',
+    'unit',
+    'performedBy',
+    'performedByName',
+    'notes',
+    'createdAt'
+  ])
+  && request.resource.data.keys().hasOnly([
+    'id',
+    'type',
+    'productId',
+    'productName',
+    'batchId',
+    'batchCode',
+    'qty',
+    'unit',
+    'performedBy',
+    'performedByName',
+    'notes',
+
+    // Field kelompok transaksi FIFO lintas-batch.
+    'transactionGroupId',
+
+    'storageLocation',
+    'remainingQtyBefore',
+    'remainingQtyAfter',
+    'totalStockAfter',
+    'createdAt'
+  ])
+
+  && (
+    request.resource.data.type == 'stock_in'
+    || request.resource.data.type == 'stock_out'
+  )
+
+  && request.resource.data.productId is string
+
+  && request.resource.data.productName is string
+
+  && request.resource.data.batchId is string
+
+  && request.resource.data.batchCode is string
+
+  && request.resource.data.qty is int
+
+  && request.resource.data.qty > 0
+
+  && request.resource.data.unit is string
+
+  && request.resource.data.performedBy
+      == request.auth.uid
+
+  && request.resource.data.performedByName
+      is string
+
+  && request.resource.data.notes
+      is string
+
+  && request.resource.data.createdAt
+      is timestamp
+
+  && (
+    !(
+      'id'
+      in request.resource.data
+    )
+    || request.resource.data.id
+        == transactionId
+  )
+
+  && (
+    !(
+      'transactionGroupId'
+      in request.resource.data
+    )
+    || (
+      request.resource.data.transactionGroupId
           is string
-        && request.resource.data.notes is string
-        && request.resource.data.createdAt
-          is timestamp
-        && (
-          !(
-            'id'
-            in request.resource.data
-          )
-          || request.resource.data.id
-            == transactionId
-        )
-        && (
-          !(
-            'storageLocation'
-            in request.resource.data
-          )
-          || request.resource.data.storageLocation
-            is string
-        )
-        && (
-          !(
-            'remainingQtyBefore'
-            in request.resource.data
-          )
-          || request.resource.data.remainingQtyBefore
-            is int
-        )
-        && (
-          !(
-            'remainingQtyAfter'
-            in request.resource.data
-          )
-          || request.resource.data.remainingQtyAfter
-            is int
-        )
-        && (
-          !(
-            'totalStockAfter'
-            in request.resource.data
-          )
-          || request.resource.data.totalStockAfter
-            is int
-        );
-    }
+      && request.resource.data.transactionGroupId
+          .size() > 0
+    )
+  )
 
-    function isValidStockInTransaction() {
-      let batchAfter = getAfter(
-        /databases/$(database)/documents/batches/$(request.resource.data.batchId)
-      ).data;
+  && (
+    !(
+      'storageLocation'
+      in request.resource.data
+    )
+    || request.resource.data.storageLocation
+        is string
+  )
 
-      return request.resource.data.type == 'stock_in'
-        && batchAfter.id
-          == request.resource.data.batchId
-        && batchAfter.batchCode
-          == request.resource.data.batchCode
-        && batchAfter.productId
-          == request.resource.data.productId
-        && batchAfter.productName
-          == request.resource.data.productName
-        && batchAfter.unit
-          == request.resource.data.unit
-        && batchAfter.initialQty
-          == request.resource.data.qty
-        && batchAfter.remainingQty
-          == request.resource.data.qty
-        && batchAfter.createdBy
-          == request.auth.uid
-        && isValidSearchKeywords(
-          batchAfter
-        );
-    }
+  && (
+    !(
+      'remainingQtyBefore'
+      in request.resource.data
+    )
+    || request.resource.data.remainingQtyBefore
+        is int
+  )
 
-    function isValidStockOutTransaction() {
-      let batchBefore = get(
-        /databases/$(database)/documents/batches/$(request.resource.data.batchId)
-      ).data;
+  && (
+    !(
+      'remainingQtyAfter'
+      in request.resource.data
+    )
+    || request.resource.data.remainingQtyAfter
+        is int
+  )
 
-      let batchAfter = getAfter(
-        /databases/$(database)/documents/batches/$(request.resource.data.batchId)
-      ).data;
+  && (
+    !(
+      'totalStockAfter'
+      in request.resource.data
+    )
+    || request.resource.data.totalStockAfter
+        is int
+  );
+}
 
-      let productBefore = get(
-        /databases/$(database)/documents/products/$(request.resource.data.productId)
-      ).data;
+function isValidStockInTransaction() {
+  let batchAfter = getAfter(
+    /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+  ).data;
 
-      let productAfter = getAfter(
-        /databases/$(database)/documents/products/$(request.resource.data.productId)
-      ).data;
+  return request.resource.data.type
+      == 'stock_in'
 
-      return request.resource.data.type == 'stock_out'
-        && batchBefore.status == 'active'
-        && batchBefore.remainingQty is int
-        && batchAfter.remainingQty is int
-        && batchBefore.remainingQty
-          - batchAfter.remainingQty
-          == request.resource.data.qty
-        && batchAfter.remainingQty >= 0
-        && batchAfter.status
-          == (
-            batchAfter.remainingQty == 0
-              ? 'empty'
-              : 'active'
-          )
-        && isValidSearchKeywords(
-          batchAfter
-        )
-        && batchBefore.batchCode
-          == request.resource.data.batchCode
-        && batchBefore.productId
-          == request.resource.data.productId
-        && batchBefore.productName
-          == request.resource.data.productName
-        && batchBefore.unit
-          == request.resource.data.unit
-        && productAfter.totalStock is int
-        && productAfter.totalStock >= 0
-        && (
-          productAfter.totalStock
-            != productBefore.totalStock
-          || productAfter.updatedAt
-            != productBefore.updatedAt
-        )
-        && (
-          !(
-            'storageLocation'
-            in request.resource.data
-          )
-          || request.resource.data.storageLocation
-            == batchBefore.storageLocation
-        )
-        && (
-          !(
-            'remainingQtyBefore'
-            in request.resource.data
-          )
-          || request.resource.data.remainingQtyBefore
-            == batchBefore.remainingQty
-        )
-        && (
-          !(
-            'remainingQtyAfter'
-            in request.resource.data
-          )
-          || request.resource.data.remainingQtyAfter
-            == batchAfter.remainingQty
-        )
-        && (
-          !(
-            'totalStockAfter'
-            in request.resource.data
-          )
-          || request.resource.data.totalStockAfter
-            == productAfter.totalStock
-        );
-    }
+  && batchAfter.id
+      == request.resource.data.batchId
 
-    match /transactions/{transactionId} {
-      allow read: if isOwner();
+  && batchAfter.batchCode
+      == request.resource.data.batchCode
 
-      allow create: if isActiveUser()
-        && isValidTransactionBase(
-          transactionId
-        )
-        && (
-          isValidStockInTransaction()
-          || isValidStockOutTransaction()
-        );
+  && batchAfter.productId
+      == request.resource.data.productId
 
-      allow update, delete: if false;
-    }
+  && batchAfter.productName
+      == request.resource.data.productName
+
+  && batchAfter.unit
+      == request.resource.data.unit
+
+  && batchAfter.initialQty
+      == request.resource.data.qty
+
+  && batchAfter.remainingQty
+      == request.resource.data.qty
+
+  && batchAfter.createdBy
+      == request.auth.uid
+
+  && isValidSearchKeywords(
+    batchAfter
+  );
+}
+
+function isValidStockOutTransaction() {
+  let batchBefore = get(
+    /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+  ).data;
+
+  let batchAfter = getAfter(
+    /databases/$(database)/documents/batches/$(request.resource.data.batchId)
+  ).data;
+
+  let productBefore = get(
+    /databases/$(database)/documents/products/$(request.resource.data.productId)
+  ).data;
+
+  let productAfter = getAfter(
+    /databases/$(database)/documents/products/$(request.resource.data.productId)
+  ).data;
+
+  return request.resource.data.type
+      == 'stock_out'
+
+  // Setiap stock_out baru wajib memiliki
+  // transactionGroupId.
+  && (
+    'transactionGroupId'
+    in request.resource.data
+  )
+
+  && request.resource.data.transactionGroupId
+      is string
+
+  && request.resource.data.transactionGroupId
+      .size() > 0
+
+  // Batch sebelum transaksi harus aktif.
+  && batchBefore.status
+      == 'active'
+
+  && batchBefore.remainingQty
+      is int
+
+  && batchBefore.remainingQty
+      > 0
+
+  // Batch setelah transaksi harus valid.
+  && batchAfter.remainingQty
+      is int
+
+  && batchBefore.remainingQty
+      - batchAfter.remainingQty
+      == request.resource.data.qty
+
+  && batchAfter.remainingQty
+      >= 0
+
+  && batchAfter.status
+      == (
+        batchAfter.remainingQty == 0
+        ? 'empty'
+        : 'active'
+      )
+
+  && isValidSearchKeywords(
+    batchAfter
+  )
+
+  // Identitas batch tidak boleh berubah.
+  && batchBefore.batchCode
+      == request.resource.data.batchCode
+
+  && batchBefore.productId
+      == request.resource.data.productId
+
+  && batchBefore.productName
+      == request.resource.data.productName
+
+  && batchBefore.unit
+      == request.resource.data.unit
+
+  // Produk harus ikut berubah dalam transaksi atomik.
+  && productAfter.totalStock
+      is int
+
+  && productAfter.totalStock
+      >= 0
+
+  && (
+    productAfter.totalStock
+        != productBefore.totalStock
+
+    || productAfter.updatedAt
+        != productBefore.updatedAt
+  )
+
+  // Lokasi pada transaksi harus sama
+  // dengan lokasi batch sebelum transaksi.
+  && (
+    !(
+      'storageLocation'
+      in request.resource.data
+    )
+
+    || request.resource.data.storageLocation
+        == batchBefore.storageLocation
+  )
+
+  // Audit jumlah batch sebelum transaksi.
+  && (
+    !(
+      'remainingQtyBefore'
+      in request.resource.data
+    )
+
+    || request.resource.data.remainingQtyBefore
+        == batchBefore.remainingQty
+  )
+
+  // Audit jumlah batch setelah transaksi.
+  && (
+    !(
+      'remainingQtyAfter'
+      in request.resource.data
+    )
+
+    || request.resource.data.remainingQtyAfter
+        == batchAfter.remainingQty
+  )
+
+  // Total stok produk setelah seluruh
+  // alokasi lintas-batch.
+  && (
+    !(
+      'totalStockAfter'
+      in request.resource.data
+    )
+
+    || request.resource.data.totalStockAfter
+        == productAfter.totalStock
+  );
+}
+
+match /transactions/{transactionId} {
+  // Riwayat, laporan, dan analisis
+  // hanya dapat dibaca pemilik.
+  allow read: if isOwner();
+
+  // Owner dan karyawan aktif dapat
+  // membuat transaksi operasional.
+  allow create: if isActiveUser()
+    && isValidTransactionBase(
+      transactionId
+    )
+    && (
+      isValidStockInTransaction()
+      || isValidStockOutTransaction()
+    );
+
+  // Riwayat transaksi bersifat immutable.
+  allow update, delete: if false;
+}
 
     function isValidBatchMovementCreate(
       movementId

@@ -1,11 +1,14 @@
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../data/models/product_model.dart';
+
 import '../../data/models/transaction_model.dart';
+
 import '../../data/repositories/product_repository.dart';
-import '../../data/repositories/transaction_repository.dart';
 
 class StockTrendPage extends StatefulWidget {
   const StockTrendPage({super.key});
@@ -16,23 +19,39 @@ class StockTrendPage extends StatefulWidget {
 
 class _StockTrendPageState extends State<StockTrendPage> {
   static const String _allProductsValue = '__all_products__';
+
   static const int _historyMonths = 6;
+
   static const int _forecastDays = 7;
+
   static const int _weeklyWindowDays = 7;
+
+  static const double _trendThresholdPercentPerDay = 0.10;
+
+  static const int _validationWindows = 4;
+
+  static const int _validationDaysPerWindow = 7;
+
   static const double _pointSpacing = 72;
 
   final ProductRepository _productRepository = ProductRepository();
-  final TransactionRepository _transactionRepository = TransactionRepository();
+
   final ScrollController _trendScrollController = ScrollController();
 
   late final DateTime _historyStart;
+
   late final DateTime _historyEnd;
+
   late final Stream<List<TransactionModel>> _transactionsStream;
+
   late final Stream<List<TransactionModel>> _futureTransactionsStream;
 
   List<ProductModel> _products = [];
+
   String _selectedProduct = _allProductsValue;
+
   String? _lastScrollKey;
+
   bool _loadingProducts = true;
 
   bool get _isAllProducts => _selectedProduct == _allProductsValue;
@@ -45,20 +64,23 @@ class _StockTrendPageState extends State<StockTrendPage> {
     super.initState();
 
     final now = DateTime.now();
+
     _historyEnd = DateTime(now.year, now.month, now.day);
+
     _historyStart = _subtractMonths(_historyEnd, _historyMonths);
 
-    _transactionsStream =
-        _transactionRepository.getTransactionsByDateRangeStream(
+    _transactionsStream = _getTransactionsByDateRangeStream(
       startDate: _historyStart,
       endDate: _historyEnd,
     );
 
     // Digunakan untuk mengembalikan state stok Firestore ke posisi
+
     // pada tanggal analisis. Ini penting jika database sudah berisi
+
     // transaksi dengan tanggal setelah tanggal aplikasi dibuka.
-    _futureTransactionsStream =
-        _transactionRepository.getTransactionsByDateRangeStream(
+
+    _futureTransactionsStream = _getTransactionsByDateRangeStream(
       startDate: _historyEnd.add(const Duration(days: 1)),
       endDate: DateTime(2100, 12, 31),
     );
@@ -69,13 +91,17 @@ class _StockTrendPageState extends State<StockTrendPage> {
   @override
   void dispose() {
     _trendScrollController.dispose();
+
     super.dispose();
   }
 
   DateTime _subtractMonths(DateTime date, int months) {
     final monthIndex = date.year * 12 + date.month - 1 - months;
+
     final year = monthIndex ~/ 12;
+
     final month = monthIndex % 12 + 1;
+
     final lastDay = DateTime(year, month + 1, 0).day;
 
     return DateTime(
@@ -88,6 +114,45 @@ class _StockTrendPageState extends State<StockTrendPage> {
   DateTime _dateOnly(DateTime date) =>
       DateTime(date.year, date.month, date.day);
 
+  Stream<List<TransactionModel>> _getTransactionsByDateRangeStream({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) {
+    final start = DateTime(
+      startDate.year,
+      startDate.month,
+      startDate.day,
+    );
+
+    final endExclusive = DateTime(
+      endDate.year,
+      endDate.month,
+      endDate.day,
+    ).add(const Duration(days: 1));
+
+    return FirebaseFirestore.instance
+        .collection('transactions')
+        .where(
+          'createdAt',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(start),
+        )
+        .where(
+          'createdAt',
+          isLessThan: Timestamp.fromDate(endExclusive),
+        )
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map(
+                (document) => TransactionModel.fromMap(
+                  document.id,
+                  document.data(),
+                ),
+              )
+              .toList(),
+        );
+  }
+
   Future<void> _loadProducts() async {
     try {
       final products = await _productRepository.getActiveProducts();
@@ -96,6 +161,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
       setState(() {
         _products = products;
+
         _loadingProducts = false;
 
         if (!_isAllProducts &&
@@ -137,6 +203,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
     if (_isAllProducts) return 'Karung';
 
     final value = _selectedProductModel()?.unit.trim() ?? '';
+
     return value.isEmpty ? 'Karung' : value;
   }
 
@@ -154,11 +221,17 @@ class _StockTrendPageState extends State<StockTrendPage> {
       final type = transaction.type.trim().toLowerCase();
 
       // products.totalStock merepresentasikan state Firestore terbaru.
+
       // Untuk mendapatkan stok pada _historyEnd, semua transaksi setelah
+
       // tanggal tersebut dibalik secara matematis:
+
       //
+
       // stock_in masa depan  -> dikurangi kembali
+
       // stock_out masa depan -> ditambahkan kembali
+
       if (type == 'stock_in') {
         stock -= transaction.qty;
       } else if (type == 'stock_out') {
@@ -215,6 +288,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
   String _forecastPeriod() {
     final start = _historyEnd.add(const Duration(days: 1));
+
     final end = _historyEnd.add(const Duration(days: _forecastDays));
 
     return '${_formatDate(start)} - ${_formatDate(end)}';
@@ -225,6 +299,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
     String? productId,
   }) {
     final map = <String, _DailyStockOut>{};
+
     final totalDays = _historyEnd.difference(_historyStart).inDays;
 
     for (var index = 0; index <= totalDays; index++) {
@@ -260,6 +335,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
       }
 
       final key = _dateKey(date);
+
       final oldQty = map[key]?.qty ?? 0;
 
       map[key] = _DailyStockOut(
@@ -298,17 +374,24 @@ class _StockTrendPageState extends State<StockTrendPage> {
     final n = data.length;
 
     double sumX = 0;
+
     double sumY = 0;
+
     double sumXY = 0;
+
     double sumX2 = 0;
 
     for (var index = 0; index < n; index++) {
       final x = index.toDouble();
+
       final y = data[index].qty.toDouble();
 
       sumX += x;
+
       sumY += y;
+
       sumXY += x * y;
+
       sumX2 += x * x;
     }
 
@@ -319,21 +402,31 @@ class _StockTrendPageState extends State<StockTrendPage> {
     }
 
     final slope = (n * sumXY - sumX * sumY) / denominator;
+
     final intercept = (sumY - slope * sumX) / n;
 
     final meanY = sumY / n;
+
+    final relativeSlopePercentPerDay =
+        meanY == 0 ? 0.0 : (slope / meanY) * 100.0;
+
     double ssResidual = 0;
+
     double ssTotal = 0;
 
     for (var index = 0; index < n; index++) {
       final x = index.toDouble();
+
       final actual = data[index].qty.toDouble();
+
       final fitted = intercept + slope * x;
 
       final residual = actual - fitted;
+
       final deviationFromMean = actual - meanY;
 
       ssResidual += residual * residual;
+
       ssTotal += deviationFromMean * deviationFromMean;
     }
 
@@ -346,11 +439,14 @@ class _StockTrendPageState extends State<StockTrendPage> {
     }
 
     final predictions = <_PredictedStockOut>[];
+
     var predictionTotal = 0;
 
     for (var index = 0; index < _forecastDays; index++) {
       final x = n + index;
+
       final raw = intercept + slope * x;
+
       final qty = math.max(0, raw).round();
 
       predictions.add(
@@ -365,10 +461,14 @@ class _StockTrendPageState extends State<StockTrendPage> {
       predictionTotal += qty;
     }
 
+    final validation = _calculateWalkForwardValidation(series);
+
     return _RegressionResult(
       slope: slope,
       intercept: intercept,
       rSquared: rSquared,
+      relativeSlopePercentPerDay: relativeSlopePercentPerDay,
+      validation: validation,
       totalQty: series.totalQty,
       averageQty: series.totalQty / data.length,
       estimatedNext7Days: predictionTotal,
@@ -376,10 +476,148 @@ class _StockTrendPageState extends State<StockTrendPage> {
     );
   }
 
+  _ValidationMetrics? _calculateWalkForwardValidation(
+    _DailySeries series,
+  ) {
+    final data = series.points;
+
+    const requiredTestDays = _validationWindows * _validationDaysPerWindow;
+
+    if (data.length <= requiredTestDays + 2) {
+      return null;
+    }
+
+    final firstTestIndex = data.length - requiredTestDays;
+
+    double absoluteErrorTotal = 0.0;
+
+    double squaredErrorTotal = 0.0;
+
+    double actualTotal = 0.0;
+
+    double predictedTotal = 0.0;
+
+    int observationCount = 0;
+
+    for (var window = 0; window < _validationWindows; window++) {
+      final testStart = firstTestIndex + window * _validationDaysPerWindow;
+
+      final trainingData = data.sublist(0, testStart);
+
+      final activeTrainingDays =
+          trainingData.where((point) => point.qty > 0).length;
+
+      if (trainingData.length < 3 || activeTrainingDays < 3) {
+        return null;
+      }
+
+      final fit = _calculateLinearFit(trainingData);
+
+      if (fit == null) {
+        return null;
+      }
+
+      for (var offset = 0; offset < _validationDaysPerWindow; offset++) {
+        final dataIndex = testStart + offset;
+
+        if (dataIndex >= data.length) {
+          break;
+        }
+
+        final actual = data[dataIndex].qty.toDouble();
+
+        final rawPrediction = fit.intercept + fit.slope * dataIndex.toDouble();
+
+        final predicted = math.max(0.0, rawPrediction).round().toDouble();
+
+        final error = actual - predicted;
+
+        absoluteErrorTotal += error.abs();
+
+        squaredErrorTotal += error * error;
+
+        actualTotal += actual;
+
+        predictedTotal += predicted;
+
+        observationCount++;
+      }
+    }
+
+    if (observationCount == 0) {
+      return null;
+    }
+
+    final mae = absoluteErrorTotal / observationCount;
+
+    final rmse = math.sqrt(squaredErrorTotal / observationCount);
+
+    final wape =
+        actualTotal == 0 ? 0.0 : (absoluteErrorTotal / actualTotal) * 100.0;
+
+    return _ValidationMetrics(
+      windows: _validationWindows,
+      testDays: observationCount,
+      totalActual: actualTotal.round(),
+      totalPredicted: predictedTotal.round(),
+      mae: mae,
+      rmse: rmse,
+      wape: wape,
+    );
+  }
+
+  _LinearFit? _calculateLinearFit(
+    List<_DailyStockOut> data,
+  ) {
+    if (data.length < 3) {
+      return null;
+    }
+
+    final n = data.length;
+
+    double sumX = 0.0;
+
+    double sumY = 0.0;
+
+    double sumXY = 0.0;
+
+    double sumX2 = 0.0;
+
+    for (var index = 0; index < n; index++) {
+      final x = index.toDouble();
+
+      final y = data[index].qty.toDouble();
+
+      sumX += x;
+
+      sumY += y;
+
+      sumXY += x * y;
+
+      sumX2 += x * x;
+    }
+
+    final denominator = n * sumX2 - sumX * sumX;
+
+    if (denominator == 0) {
+      return null;
+    }
+
+    final slope = (n * sumXY - sumX * sumY) / denominator;
+
+    final intercept = (sumY - slope * sumX) / n;
+
+    return _LinearFit(
+      slope: slope,
+      intercept: intercept,
+    );
+  }
+
   List<_TrendPoint> _buildWeeklyPoints(
     _DailySeries series,
   ) {
     final result = <_TrendPoint>[];
+
     final data = series.points;
 
     for (var startIndex = 0;
@@ -397,6 +635,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
       }
 
       final dayCount = endIndex - startIndex + 1;
+
       final endDate = data[endIndex].date;
 
       result.add(
@@ -436,7 +675,9 @@ class _StockTrendPageState extends State<StockTrendPage> {
       );
 
       final result = _calculateRegression(series);
+
       final estimated = result?.estimatedNext7Days ?? 0;
+
       final stockAsOf = _stockForProductAsOf(
         product,
         futureTransactions,
@@ -492,48 +733,48 @@ class _StockTrendPageState extends State<StockTrendPage> {
     });
   }
 
-  String _trendLabel(double slope) {
-    if (slope > 0.1) {
+  String _trendLabel(double relativeSlopePercentPerDay) {
+    if (relativeSlopePercentPerDay > _trendThresholdPercentPerDay) {
       return 'Meningkat';
     }
 
-    if (slope < -0.1) {
+    if (relativeSlopePercentPerDay < -_trendThresholdPercentPerDay) {
       return 'Menurun';
     }
 
     return 'Stabil';
   }
 
-  String _trendDescription(double slope) {
-    if (slope > 0.1) {
+  String _trendDescription(double relativeSlopePercentPerDay) {
+    if (relativeSlopePercentPerDay > _trendThresholdPercentPerDay) {
       return 'Pengeluaran stok cenderung meningkat.';
     }
 
-    if (slope < -0.1) {
+    if (relativeSlopePercentPerDay < -_trendThresholdPercentPerDay) {
       return 'Pengeluaran stok cenderung menurun.';
     }
 
     return 'Pengeluaran stok relatif stabil.';
   }
 
-  Color _trendColor(double slope) {
-    if (slope > 0.1) {
+  Color _trendColor(double relativeSlopePercentPerDay) {
+    if (relativeSlopePercentPerDay > _trendThresholdPercentPerDay) {
       return Colors.green.shade600;
     }
 
-    if (slope < -0.1) {
+    if (relativeSlopePercentPerDay < -_trendThresholdPercentPerDay) {
       return Colors.red.shade600;
     }
 
     return Colors.orange.shade600;
   }
 
-  IconData _trendIcon(double slope) {
-    if (slope > 0.1) {
+  IconData _trendIcon(double relativeSlopePercentPerDay) {
+    if (relativeSlopePercentPerDay > _trendThresholdPercentPerDay) {
       return Icons.trending_up_rounded;
     }
 
-    if (slope < -0.1) {
+    if (relativeSlopePercentPerDay < -_trendThresholdPercentPerDay) {
       return Icons.trending_down_rounded;
     }
 
@@ -841,7 +1082,9 @@ class _StockTrendPageState extends State<StockTrendPage> {
       );
     }
 
-    final color = _trendColor(regression.slope);
+    final relativeSlope = regression.relativeSlopePercentPerDay;
+
+    final color = _trendColor(relativeSlope);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -858,7 +1101,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
                   CircleAvatar(
                     backgroundColor: color.withOpacity(0.14),
                     child: Icon(
-                      _trendIcon(regression.slope),
+                      _trendIcon(relativeSlope),
                       color: color,
                     ),
                   ),
@@ -874,7 +1117,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
                           ),
                         ),
                         Text(
-                          _trendDescription(regression.slope),
+                          _trendDescription(relativeSlope),
                           style: const TextStyle(
                             color: Colors.black54,
                             fontSize: 11,
@@ -884,7 +1127,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
                     ),
                   ),
                   _chip(
-                    _trendLabel(regression.slope),
+                    _trendLabel(relativeSlope),
                     color,
                   ),
                 ],
@@ -923,6 +1166,10 @@ class _StockTrendPageState extends State<StockTrendPage> {
                 regression.slope.toStringAsFixed(4),
               ),
               _resultRow(
+                'Slope Relatif',
+                '${regression.relativeSlopePercentPerDay.toStringAsFixed(4)}% per hari',
+              ),
+              _resultRow(
                 'Nilai Intercept',
                 regression.intercept.toStringAsFixed(4),
               ),
@@ -931,6 +1178,20 @@ class _StockTrendPageState extends State<StockTrendPage> {
                 '${regression.rSquared.toStringAsFixed(4)} '
                     '(${(regression.rSquared * 100).toStringAsFixed(2)}%)',
               ),
+              if (regression.validation != null) ...[
+                _resultRow(
+                  'MAE',
+                  '${regression.validation!.mae.toStringAsFixed(2)} ${_unit()}/hari',
+                ),
+                _resultRow(
+                  'RMSE',
+                  '${regression.validation!.rmse.toStringAsFixed(2)} ${_unit()}/hari',
+                ),
+                _resultRow(
+                  'WAPE',
+                  '${regression.validation!.wape.toStringAsFixed(2)}%',
+                ),
+              ],
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.only(top: 4),
@@ -945,7 +1206,10 @@ class _StockTrendPageState extends State<StockTrendPage> {
                 child: const Text(
                   'R² menunjukkan proporsi variasi stok keluar yang dapat '
                   'dijelaskan oleh model regresi linear terhadap waktu. '
-                  'Nilai R² bukan persentase akurasi prediksi.',
+                  'Nilai R² bukan persentase akurasi prediksi. Status tren '
+                  'menggunakan slope relatif dengan ambang ±0,10% per hari. '
+                  'MAE, RMSE, dan WAPE dihitung menggunakan validasi '
+                  'walk-forward 4 jendela × 7 hari.',
                   style: TextStyle(
                     color: Color(0xFF015816),
                     fontSize: 10.5,
@@ -970,6 +1234,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
     }
 
     final points = _buildWeeklyPoints(series);
+
     final peak = _peakDay(series);
 
     final chartWidth = 58 +
@@ -1309,7 +1574,9 @@ class _StockTrendPageState extends State<StockTrendPage> {
     final current = _currentStockAsOf(
       futureTransactions,
     );
+
     final estimated = regression.estimatedNext7Days;
+
     final additional = math.max(
       0,
       estimated - current,
@@ -1920,6 +2187,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
 class _DailyStockOut {
   final DateTime date;
+
   final int qty;
 
   const _DailyStockOut({
@@ -1930,8 +2198,11 @@ class _DailyStockOut {
 
 class _DailySeries {
   final List<_DailyStockOut> points;
+
   final int transactionCount;
+
   final int activeDays;
+
   final int totalQty;
 
   const _DailySeries({
@@ -1944,6 +2215,7 @@ class _DailySeries {
 
 class _PredictedStockOut {
   final DateTime date;
+
   final int qty;
 
   const _PredictedStockOut({
@@ -1954,17 +2226,29 @@ class _PredictedStockOut {
 
 class _RegressionResult {
   final double slope;
+
   final double intercept;
+
   final double rSquared;
+
+  final double relativeSlopePercentPerDay;
+
+  final _ValidationMetrics? validation;
+
   final int totalQty;
+
   final double averageQty;
+
   final int estimatedNext7Days;
+
   final List<_PredictedStockOut> predictedDaily;
 
   const _RegressionResult({
     required this.slope,
     required this.intercept,
     required this.rSquared,
+    required this.relativeSlopePercentPerDay,
+    required this.validation,
     required this.totalQty,
     required this.averageQty,
     required this.estimatedNext7Days,
@@ -1972,12 +2256,54 @@ class _RegressionResult {
   });
 }
 
+class _ValidationMetrics {
+  final int windows;
+
+  final int testDays;
+
+  final int totalActual;
+
+  final int totalPredicted;
+
+  final double mae;
+
+  final double rmse;
+
+  final double wape;
+
+  const _ValidationMetrics({
+    required this.windows,
+    required this.testDays,
+    required this.totalActual,
+    required this.totalPredicted,
+    required this.mae,
+    required this.rmse,
+    required this.wape,
+  });
+}
+
+class _LinearFit {
+  final double slope;
+
+  final double intercept;
+
+  const _LinearFit({
+    required this.slope,
+    required this.intercept,
+  });
+}
+
 class _ProductForecast {
   final ProductModel product;
+
   final int activeDays;
+
   final int currentStockAsOf;
+
   final int estimatedNeed;
+
   final int additionalNeed;
+
   final bool hasEnoughData;
 
   const _ProductForecast({
@@ -1992,7 +2318,9 @@ class _ProductForecast {
 
 class _TrendPoint {
   final String label;
+
   final double value;
+
   final int sourceIndex;
 
   const _TrendPoint({
@@ -2004,6 +2332,7 @@ class _TrendPoint {
 
 class _LegendPainter extends CustomPainter {
   final Color color;
+
   final bool dashed;
 
   const _LegendPainter({
@@ -2069,6 +2398,7 @@ class _LegendPainter extends CustomPainter {
 
 class _TrendChartPainter extends CustomPainter {
   final List<_TrendPoint> points;
+
   final _RegressionResult regression;
 
   const _TrendChartPainter({
@@ -2144,6 +2474,7 @@ class _TrendChartPainter extends CustomPainter {
     );
 
     final actualOffsets = <Offset>[];
+
     final trendOffsets = <Offset>[];
 
     for (var index = 0; index < points.length; index++) {
@@ -2340,6 +2671,7 @@ void _drawGrid(
 
   for (var index = 0; index <= 4; index++) {
     final ratio = index / 4;
+
     final y = rect.bottom - rect.height * ratio;
 
     canvas.drawLine(
@@ -2495,8 +2827,11 @@ void _drawDashedPath(
 
   for (var index = 0; index < points.length - 1; index++) {
     final start = points[index];
+
     final end = points[index + 1];
+
     final delta = end - start;
+
     final distance = delta.distance;
 
     if (distance == 0) {
@@ -2504,6 +2839,7 @@ void _drawDashedPath(
     }
 
     final direction = delta / distance;
+
     var travelled = 0.0;
 
     while (travelled < distance) {

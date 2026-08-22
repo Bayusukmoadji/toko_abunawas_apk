@@ -14,7 +14,6 @@ import '../../data/repositories/batch_repository.dart';
 import '../../data/repositories/product_repository.dart';
 import '../alerts/alerts_page.dart';
 import '../analysis/stock_trend_page.dart';
-import '../analysis/regression_validation_page.dart';
 import '../auth/login_page.dart';
 import '../history/transaction_history_page.dart';
 import '../products/product_management_page.dart';
@@ -1953,29 +1952,6 @@ class DashboardPage extends StatelessWidget {
                             const ProductManagementPage(),
                           );
                         },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildMaterialMenuItem(
-                        title: 'Validasi\nRegresi',
-                        icon: Icons.analytics_outlined,
-                        iconSize: 25,
-                        onTap: () {
-                          _openOwnerPage(
-                            context,
-                            const RegressionValidationPage(),
-                          );
-                        },
-                      ),
-                      const Expanded(
-                        child: SizedBox(),
-                      ),
-                      const Expanded(
-                        child: SizedBox(),
                       ),
                     ],
                   ),

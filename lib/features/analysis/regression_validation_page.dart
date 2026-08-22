@@ -26,6 +26,16 @@ class RegressionValidationPage extends StatefulWidget {
 
 class _RegressionValidationPageState extends State<RegressionValidationPage> {
   static const String _allProductsValue = '__all_products__';
+
+  // Validasi mengikuti konsep regresi operasional:
+  // - training rolling 6 bulan
+  // - testing 7 hari
+  // - maksimal 4 window terbaru
+  // - tanggal maksimum data = tanggal aplikasi/halaman dibuka
+  static const int _trainingMonths = 6;
+  static const int _testingDays = 7;
+  static const int _maxWindows = 4;
+
   final ProductRepository _productRepository = ProductRepository();
   final TransactionRepository _transactionRepository = TransactionRepository();
 
@@ -38,28 +48,32 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
   bool _generatingPdf = false;
 
   String? _errorMessage;
-  _ValidationResult? _result;
+  _RollingValidationResult? _result;
 
-  late final DateTime _validationEnd;
-  late final DateTime _validationStart;
-  late final DateTime _trainingEnd;
-  late final DateTime _trainingStart;
+  late final DateTime _appOpenedDate;
+  late final DateTime _queryStart;
 
   @override
   void initState() {
     super.initState();
 
-    // Historical backtesting berdasarkan dataset penelitian
-    // 31 Januari 2026 sampai 31 Juli 2026 (182 hari).
-    //
-    // 31 Januari - 24 Juli 2026 = data training.
-    // 25 Juli - 31 Juli 2026 = data validasi/holdout.
-    //
-    // Data validasi tidak digunakan saat membentuk model regresi.
-    _trainingStart = DateTime(2026, 1, 31);
-    _trainingEnd = DateTime(2026, 7, 24);
-    _validationStart = DateTime(2026, 7, 25);
-    _validationEnd = DateTime(2026, 7, 31);
+    // Tanggal maksimum validasi dikunci saat halaman dibuka.
+    // Transaksi dengan tanggal setelah hari ini tidak digunakan,
+    // walaupun dokumennya sudah ada di Firestore.
+    _appOpenedDate = _dateOnly(DateTime.now());
+
+    // Ambil data secukupnya untuk 4 window terbaru.
+    // Window tertua memiliki testing 7 hari dan training 6 bulan.
+    final oldestTestingStart = _appOpenedDate.subtract(
+      const Duration(
+        days: (_testingDays * _maxWindows) - 1,
+      ),
+    );
+
+    _queryStart = _subtractMonths(
+      oldestTestingStart,
+      _trainingMonths,
+    );
 
     _loadData();
   }
@@ -81,6 +95,33 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
       59,
       59,
       999,
+    );
+  }
+
+  DateTime _subtractMonths(
+    DateTime date,
+    int months,
+  ) {
+    final totalMonths = (date.year * 12) + (date.month - 1) - months;
+
+    final year = totalMonths ~/ 12;
+    final month = (totalMonths % 12) + 1;
+
+    final lastDayOfTargetMonth = DateTime(
+      year,
+      month + 1,
+      0,
+    ).day;
+
+    final day = math.min(
+      date.day,
+      lastDayOfTargetMonth,
+    );
+
+    return DateTime(
+      year,
+      month,
+      day,
     );
   }
 
@@ -146,6 +187,18 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
         .toSet();
   }
 
+  bool _matchesSelectedProduct(
+    TransactionModel transaction,
+  ) {
+    if (_isAllProducts) {
+      return _activeProductIds.contains(
+        transaction.productId,
+      );
+    }
+
+    return transaction.productId == _selectedProduct;
+  }
+
   Future<void> _loadData() async {
     if (mounted) {
       setState(() {
@@ -159,9 +212,9 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
 
       final transactions =
           await _transactionRepository.getTransactionsForReport(
-        startDate: _trainingStart,
+        startDate: _queryStart,
         endDate: _endOfDay(
-          _validationEnd,
+          _appOpenedDate,
         ),
         maxLimit: 5000,
       );
@@ -186,7 +239,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
         _loading = false;
       });
 
-      _calculateValidation();
+      _calculateRollingValidation();
     } catch (error) {
       if (!mounted) {
         return;
@@ -201,6 +254,56 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
             );
       });
     }
+  }
+
+  DateTime? _earliestRelevantTransactionDate() {
+    DateTime? earliest;
+
+    for (final transaction in _transactions) {
+      if (!_matchesSelectedProduct(
+        transaction,
+      )) {
+        continue;
+      }
+
+      final date = _dateOnly(
+        transaction.createdAt.toDate().toLocal(),
+      );
+
+      if (earliest == null || date.isBefore(earliest)) {
+        earliest = date;
+      }
+    }
+
+    return earliest;
+  }
+
+  DateTime? _latestRelevantTransactionDate() {
+    DateTime? latest;
+
+    for (final transaction in _transactions) {
+      if (!_matchesSelectedProduct(
+        transaction,
+      )) {
+        continue;
+      }
+
+      final date = _dateOnly(
+        transaction.createdAt.toDate().toLocal(),
+      );
+
+      if (date.isAfter(
+        _appOpenedDate,
+      )) {
+        continue;
+      }
+
+      if (latest == null || date.isAfter(latest)) {
+        latest = date;
+      }
+    }
+
+    return latest;
   }
 
   Map<String, int> _buildDailyMap({
@@ -224,13 +327,9 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
         continue;
       }
 
-      final matchesProduct = _isAllProducts
-          ? _activeProductIds.contains(
-              transaction.productId,
-            )
-          : transaction.productId == _selectedProduct;
-
-      if (!matchesProduct) {
+      if (!_matchesSelectedProduct(
+        transaction,
+      )) {
         continue;
       }
 
@@ -340,114 +439,268 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
     );
   }
 
-  void _calculateValidation() {
+  List<_ValidationWindowDefinition> _buildWindowDefinitions({
+    required DateTime earliestDataDate,
+  }) {
+    final definitions = <_ValidationWindowDefinition>[];
+
+    for (var index = 0; index < _maxWindows; index++) {
+      // Window terbaru berakhir tepat pada tanggal halaman dibuka.
+      // Window sebelumnya mundur 7 hari tanpa overlap.
+      final testingEnd = _appOpenedDate.subtract(
+        Duration(
+          days: index * _testingDays,
+        ),
+      );
+
+      final testingStart = testingEnd.subtract(
+        const Duration(
+          days: _testingDays - 1,
+        ),
+      );
+
+      final trainingEnd = testingStart.subtract(
+        const Duration(days: 1),
+      );
+
+      final trainingStart = _subtractMonths(
+        testingStart,
+        _trainingMonths,
+      );
+
+      // Hanya window dengan histori 6 bulan penuh yang dipakai.
+      if (trainingStart.isBefore(
+        earliestDataDate,
+      )) {
+        continue;
+      }
+
+      definitions.add(
+        _ValidationWindowDefinition(
+          trainingStart: trainingStart,
+          trainingEnd: trainingEnd,
+          testingStart: testingStart,
+          testingEnd: testingEnd,
+        ),
+      );
+    }
+
+    // Tampilkan kronologis dari window terlama ke terbaru.
+    definitions.sort(
+      (a, b) => a.testingStart.compareTo(
+        b.testingStart,
+      ),
+    );
+
+    return definitions;
+  }
+
+  _WindowValidationResult? _calculateSingleWindow(
+    _ValidationWindowDefinition definition,
+  ) {
+    final trainingData = _buildDailyValues(
+      start: definition.trainingStart,
+      end: definition.trainingEnd,
+    );
+
+    final testingData = _buildDailyValues(
+      start: definition.testingStart,
+      end: definition.testingEnd,
+    );
+
+    final model = _calculateRegressionModel(
+      trainingData,
+    );
+
+    if (model == null) {
+      return null;
+    }
+
+    final comparison = <_ValidationDailyResult>[];
+
+    double absoluteErrorTotal = 0;
+    double squaredErrorTotal = 0;
+
+    int actualTotal = 0;
+    int predictedTotal = 0;
+
+    for (var index = 0; index < testingData.length; index++) {
+      final actual = testingData[index];
+
+      // X diteruskan setelah data training,
+      // sama seperti memprediksi 7 hari setelah window training.
+      final x = model.dataCount + index;
+
+      final rawPrediction = model.intercept + model.slope * x;
+
+      final predicted = math
+          .max(
+            0,
+            rawPrediction,
+          )
+          .round();
+
+      final error = actual.qty - predicted;
+
+      final absoluteError = error.abs().toDouble();
+
+      final squaredError = error.toDouble() * error.toDouble();
+
+      absoluteErrorTotal += absoluteError;
+
+      squaredErrorTotal += squaredError;
+
+      actualTotal += actual.qty;
+      predictedTotal += predicted;
+
+      comparison.add(
+        _ValidationDailyResult(
+          date: actual.date,
+          actualQty: actual.qty,
+          predictedQty: predicted,
+          error: error,
+          absoluteError: absoluteError,
+          squaredError: squaredError,
+        ),
+      );
+    }
+
+    final n = comparison.length;
+
+    if (n == 0) {
+      return null;
+    }
+
+    final mae = absoluteErrorTotal / n;
+
+    final rmse = math.sqrt(
+      squaredErrorTotal / n,
+    );
+
+    final difference = predictedTotal - actualTotal;
+
+    final wape =
+        actualTotal > 0 ? (absoluteErrorTotal / actualTotal) * 100 : null;
+
+    return _WindowValidationResult(
+      definition: definition,
+      model: model,
+      comparison: comparison,
+      mae: mae,
+      rmse: rmse,
+      actualTotal: actualTotal,
+      predictedTotal: predictedTotal,
+      absoluteTotalDifference: difference.abs(),
+      totalAbsoluteError: absoluteErrorTotal,
+      totalSquaredError: squaredErrorTotal,
+      wape: wape,
+    );
+  }
+
+  void _calculateRollingValidation() {
     if (_loading) {
       return;
     }
 
     try {
-      final trainingData = _buildDailyValues(
-        start: _trainingStart,
-        end: _trainingEnd,
-      );
+      final earliestDataDate = _earliestRelevantTransactionDate();
 
-      final actualValidationData = _buildDailyValues(
-        start: _validationStart,
-        end: _validationEnd,
-      );
-
-      final model = _calculateRegressionModel(
-        trainingData,
-      );
-
-      if (model == null) {
+      if (earliestDataDate == null) {
         setState(() {
           _result = null;
-          _errorMessage = 'Data belum cukup untuk validasi. '
-              'Minimal diperlukan 3 hari aktif stok keluar '
-              'pada periode training.';
+          _errorMessage = 'Belum ada data transaksi yang dapat digunakan '
+              'untuk validasi pada produk yang dipilih.';
         });
 
         return;
       }
 
-      final comparison = <_ValidationDailyResult>[];
+      final definitions = _buildWindowDefinitions(
+        earliestDataDate: earliestDataDate,
+      );
 
-      double absoluteErrorTotal = 0;
-      double squaredErrorTotal = 0;
+      if (definitions.isEmpty) {
+        setState(() {
+          _result = null;
+          _errorMessage = 'Data belum cukup untuk membentuk window validasi. '
+              'Diperlukan minimal 6 bulan histori sebelum '
+              'periode testing 7 hari.';
+        });
 
-      int actualTotal = 0;
-      int predictedTotal = 0;
-
-      for (var index = 0; index < actualValidationData.length; index++) {
-        final actual = actualValidationData[index];
-
-        final x = model.dataCount + index;
-
-        final rawPrediction = model.intercept + model.slope * x;
-
-        final predicted = math
-            .max(
-              0,
-              rawPrediction,
-            )
-            .round();
-
-        final error = actual.qty - predicted;
-
-        final absoluteError = error.abs().toDouble();
-
-        final squaredError = error.toDouble() * error.toDouble();
-
-        absoluteErrorTotal += absoluteError;
-
-        squaredErrorTotal += squaredError;
-
-        actualTotal += actual.qty;
-        predictedTotal += predicted;
-
-        comparison.add(
-          _ValidationDailyResult(
-            date: actual.date,
-            actualQty: actual.qty,
-            predictedQty: predicted,
-            error: error,
-            absoluteError: absoluteError,
-            squaredError: squaredError,
-          ),
-        );
+        return;
       }
 
-      final n = comparison.length;
+      final windows = <_WindowValidationResult>[];
 
-      final mae = n == 0 ? 0.0 : absoluteErrorTotal / n;
+      for (final definition in definitions) {
+        final window = _calculateSingleWindow(
+          definition,
+        );
 
-      final rmse = n == 0
+        if (window != null) {
+          windows.add(window);
+        }
+      }
+
+      if (windows.isEmpty) {
+        setState(() {
+          _result = null;
+          _errorMessage = 'Window tersedia, tetapi data stok keluar pada '
+              'periode training belum cukup untuk membentuk '
+              'model Linear Regression.';
+        });
+
+        return;
+      }
+
+      double totalAbsoluteError = 0;
+      double totalSquaredError = 0;
+
+      int totalActual = 0;
+      int totalPredicted = 0;
+      int totalPoints = 0;
+
+      for (final window in windows) {
+        totalAbsoluteError += window.totalAbsoluteError;
+
+        totalSquaredError += window.totalSquaredError;
+
+        totalActual += window.actualTotal;
+
+        totalPredicted += window.predictedTotal;
+
+        totalPoints += window.comparison.length;
+      }
+
+      final overallMae =
+          totalPoints == 0 ? 0.0 : totalAbsoluteError / totalPoints;
+
+      final overallRmse = totalPoints == 0
           ? 0.0
           : math.sqrt(
-              squaredErrorTotal / n,
+              totalSquaredError / totalPoints,
             );
 
-      final totalDifference = predictedTotal - actualTotal;
+      final overallWape =
+          totalActual > 0 ? (totalAbsoluteError / totalActual) * 100 : null;
 
-      final absoluteTotalDifference = totalDifference.abs();
-
-      final wape =
-          actualTotal > 0 ? (absoluteErrorTotal / actualTotal) * 100 : null;
+      final totalDifference = totalPredicted - totalActual;
 
       setState(() {
         _errorMessage = null;
-        _result = _ValidationResult(
-          model: model,
-          comparison: comparison,
-          mae: mae,
-          rmse: rmse,
-          actualTotal: actualTotal,
-          predictedTotal: predictedTotal,
-          totalDifference: totalDifference,
-          absoluteTotalDifference: absoluteTotalDifference,
-          totalAbsoluteError: absoluteErrorTotal.round(),
-          wape: wape,
+        _result = _RollingValidationResult(
+          windows: windows,
+          earliestDataDate: earliestDataDate,
+          latestTransactionDate: _latestRelevantTransactionDate(),
+          maxDataDate: _appOpenedDate,
+          totalActual: totalActual,
+          totalPredicted: totalPredicted,
+          absoluteTotalDifference: totalDifference.abs(),
+          totalAbsoluteError: totalAbsoluteError,
+          overallMae: overallMae,
+          overallRmse: overallRmse,
+          overallWape: overallWape,
+          totalValidationDays: totalPoints,
         );
       });
     } catch (error) {
@@ -485,34 +738,387 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
     return Colors.orange.shade700;
   }
 
-  String _errorInterpretation(
-    _ValidationResult result,
-  ) {
-    final wape = result.wape;
-
-    if (wape == null) {
-      return 'Total aktual pada periode validasi adalah 0, '
-          'sehingga WAPE tidak dapat dihitung. '
-          'Gunakan Total Error Absolut, MAE, dan RMSE '
-          'sebagai ukuran error model.';
+  String _wapeText(double? value) {
+    if (value == null) {
+      return '-';
     }
 
-    return 'Selisih total prediksi-aktual menunjukkan perbedaan '
-        'antara total prediksi dan total aktual selama periode validasi. '
-        'Total error absolut merupakan penjumlahan seluruh nilai |error| '
-        'harian dan menjadi dasar perhitungan MAE serta WAPE. '
-        'MAE menunjukkan rata-rata error absolut per hari, sedangkan '
-        'RMSE memberi penalti lebih besar pada error harian yang besar. '
-        'WAPE pada periode ini sebesar '
-        '${wape.toStringAsFixed(2)}%.';
+    return '${value.toStringAsFixed(2)}%';
+  }
+
+  String _overallInterpretation(
+    _RollingValidationResult result,
+  ) {
+    final wape = result.overallWape;
+
+    if (wape == null) {
+      return 'Total aktual pada seluruh window adalah 0, sehingga '
+          'WAPE tidak dapat dihitung. Gunakan Total Error Absolut, '
+          'MAE, dan RMSE sebagai ukuran error model.';
+    }
+
+    return 'Validasi menggunakan ${result.windows.length} window '
+        'rolling terbaru. Setiap window membentuk ulang model dari '
+        '6 bulan data training sebelum melakukan testing 7 hari. '
+        'MAE keseluruhan menunjukkan rata-rata error absolut harian, '
+        'RMSE memberi bobot lebih besar pada error yang besar, dan '
+        'WAPE keseluruhan sebesar ${wape.toStringAsFixed(2)}% '
+        'menunjukkan proporsi total error absolut terhadap total '
+        'stok keluar aktual pada seluruh window.';
   }
 
   Future<Uint8List> _buildPdf(
-    _ValidationResult result,
+    _RollingValidationResult result,
   ) async {
     final document = pw.Document();
 
     final generatedAt = DateTime.now();
+
+    pw.Widget buildSummaryBox() {
+      return pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(
+            color: PdfColors.grey400,
+          ),
+          borderRadius: pw.BorderRadius.circular(6),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              'Informasi Validasi',
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 6),
+            pw.Text(
+              'Metode: Rolling / Walk-Forward Backtesting',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Produk: ${_analysisName()}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Tanggal aplikasi dibuka: '
+              '${_formatDate(result.maxDataDate)}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Tanggal maksimum data validasi: '
+              '${_formatDate(result.maxDataDate)}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Window: ${result.windows.length} '
+              '(training 6 bulan + testing 7 hari)',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Data transaksi terawal yang terbaca: '
+              '${_formatDate(result.earliestDataDate)}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Transaksi terakhir <= tanggal aplikasi: '
+              '${result.latestTransactionDate == null ? '-' : _formatDate(result.latestTransactionDate!)}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    pw.Widget buildOverallMetrics() {
+      return pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.grey100,
+          borderRadius: pw.BorderRadius.circular(6),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              'Hasil Keseluruhan',
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 5),
+            pw.Text(
+              'Total hari validasi: '
+              '${result.totalValidationDays} hari',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Total aktual: '
+              '${result.totalActual} ${_unit()}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Total prediksi: '
+              '${result.totalPredicted} ${_unit()}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Selisih total prediksi-aktual: '
+              '${result.absoluteTotalDifference} ${_unit()}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'Total error absolut: '
+              '${result.totalAbsoluteError.toStringAsFixed(0)} ${_unit()}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'MAE keseluruhan: '
+              '${result.overallMae.toStringAsFixed(2)} ${_unit()}/hari',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'RMSE keseluruhan: '
+              '${result.overallRmse.toStringAsFixed(2)} ${_unit()}/hari',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.Text(
+              'WAPE keseluruhan: '
+              '${_wapeText(result.overallWape)}',
+              style: const pw.TextStyle(
+                fontSize: 8.5,
+              ),
+            ),
+            pw.SizedBox(height: 7),
+            pw.Text(
+              _overallInterpretation(
+                result,
+              ),
+              style: const pw.TextStyle(
+                fontSize: 7.5,
+                lineSpacing: 2,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    pw.Widget buildWindowSummaryTable() {
+      return pw.TableHelper.fromTextArray(
+        border: pw.TableBorder.all(
+          color: PdfColors.grey400,
+          width: 0.5,
+        ),
+        headerDecoration: const pw.BoxDecoration(
+          color: PdfColors.green700,
+        ),
+        headerStyle: pw.TextStyle(
+          color: PdfColors.white,
+          fontWeight: pw.FontWeight.bold,
+          fontSize: 7.2,
+        ),
+        cellStyle: const pw.TextStyle(
+          fontSize: 6.8,
+          lineSpacing: 1.4,
+        ),
+        cellPadding: const pw.EdgeInsets.symmetric(
+          horizontal: 4,
+          vertical: 4,
+        ),
+        headers: const [
+          'Window',
+          'Training',
+          'Testing',
+          'MAE',
+          'RMSE',
+          'WAPE',
+        ],
+        data: List.generate(
+          result.windows.length,
+          (index) {
+            final window = result.windows[index];
+
+            return [
+              '${index + 1}',
+              '${_formatDate(window.definition.trainingStart)}\n'
+                  '${_formatDate(window.definition.trainingEnd)}',
+              '${_formatDate(window.definition.testingStart)}\n'
+                  '${_formatDate(window.definition.testingEnd)}',
+              window.mae.toStringAsFixed(2),
+              window.rmse.toStringAsFixed(2),
+              _wapeText(
+                window.wape,
+              ),
+            ];
+          },
+        ),
+        columnWidths: const {
+          0: pw.FixedColumnWidth(38),
+          1: pw.FlexColumnWidth(1.4),
+          2: pw.FlexColumnWidth(1.4),
+          3: pw.FlexColumnWidth(0.8),
+          4: pw.FlexColumnWidth(0.8),
+          5: pw.FlexColumnWidth(0.8),
+        },
+      );
+    }
+
+    final detailWidgets = <pw.Widget>[];
+
+    for (var index = 0; index < result.windows.length; index++) {
+      final window = result.windows[index];
+
+      // Setiap detail window dibungkus dalam satu widget non-spanning.
+      // Jika ruang pada halaman saat ini tidak cukup, seluruh blok
+      // window akan dipindahkan ke halaman berikutnya sehingga tabel
+      // tidak terpotong di tengah pergantian halaman.
+      detailWidgets.add(
+        pw.Container(
+          margin: const pw.EdgeInsets.only(
+            top: 14,
+          ),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Detail Window ${index + 1}',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 5),
+              pw.Text(
+                'Training: '
+                '${_formatDate(window.definition.trainingStart)} - '
+                '${_formatDate(window.definition.trainingEnd)} | '
+                'Testing: '
+                '${_formatDate(window.definition.testingStart)} - '
+                '${_formatDate(window.definition.testingEnd)}',
+                style: const pw.TextStyle(
+                  fontSize: 7.5,
+                ),
+              ),
+              pw.Text(
+                'Persamaan: Y = '
+                '${window.model.intercept.toStringAsFixed(4)} '
+                '${window.model.slope >= 0 ? '+' : '-'} '
+                '${window.model.slope.abs().toStringAsFixed(4)}X | '
+                'Trend: ${_trendLabel(window.model.slope)}',
+                style: const pw.TextStyle(
+                  fontSize: 7.5,
+                ),
+              ),
+              pw.Text(
+                'MAE ${window.mae.toStringAsFixed(2)} | '
+                'RMSE ${window.rmse.toStringAsFixed(2)} | '
+                'WAPE ${_wapeText(window.wape)}',
+                style: const pw.TextStyle(
+                  fontSize: 7.5,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.TableHelper.fromTextArray(
+                border: pw.TableBorder.all(
+                  color: PdfColors.grey400,
+                  width: 0.5,
+                ),
+                headerDecoration: const pw.BoxDecoration(
+                  color: PdfColors.green700,
+                ),
+                headerStyle: pw.TextStyle(
+                  color: PdfColors.white,
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 7,
+                ),
+                cellStyle: const pw.TextStyle(
+                  fontSize: 6.8,
+                ),
+                cellPadding: const pw.EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 4,
+                ),
+                headers: const [
+                  'Tanggal',
+                  'Aktual',
+                  'Prediksi',
+                  '|Error|',
+                  'Error²',
+                ],
+                data: window.comparison
+                    .map(
+                      (item) => [
+                        _formatDate(
+                          item.date,
+                        ),
+                        '${item.actualQty}',
+                        '${item.predictedQty}',
+                        item.absoluteError.toStringAsFixed(
+                          0,
+                        ),
+                        item.squaredError.toStringAsFixed(
+                          0,
+                        ),
+                      ],
+                    )
+                    .toList(),
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(
+                    1.4,
+                  ),
+                  1: pw.FlexColumnWidth(
+                    0.9,
+                  ),
+                  2: pw.FlexColumnWidth(
+                    0.9,
+                  ),
+                  3: pw.FlexColumnWidth(
+                    0.9,
+                  ),
+                  4: pw.FlexColumnWidth(
+                    0.9,
+                  ),
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     document.addPage(
       pw.MultiPage(
@@ -542,7 +1148,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
         build: (context) {
           return [
             pw.Text(
-              'Hasil Validasi Linear Regression',
+              'Validasi Rolling Linear Regression',
               style: pw.TextStyle(
                 fontSize: 18,
                 fontWeight: pw.FontWeight.bold,
@@ -556,270 +1162,82 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
               ),
             ),
             pw.Text(
-              'Dibuat: ${_formatDateTime(generatedAt)}',
+              'Dibuat: '
+              '${_formatDateTime(generatedAt)}',
               style: const pw.TextStyle(
                 fontSize: 8,
                 color: PdfColors.grey700,
               ),
             ),
             pw.SizedBox(height: 12),
-            pw.Container(
-              width: double.infinity,
-              padding: const pw.EdgeInsets.all(
-                10,
-              ),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(
-                  color: PdfColors.grey400,
-                ),
-                borderRadius: pw.BorderRadius.circular(
-                  6,
-                ),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Informasi Pengujian',
-                    style: pw.TextStyle(
-                      fontSize: 10,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 6),
-                  pw.Text(
-                    'Produk: ${_analysisName()}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Dataset: '
-                    '${_formatDate(_trainingStart)} - '
-                    '${_formatDate(_validationEnd)}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Training: '
-                    '${_formatDate(_trainingStart)} - '
-                    '${_formatDate(_trainingEnd)}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Validasi: '
-                    '${_formatDate(_validationStart)} - '
-                    '${_formatDate(_validationEnd)}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Persamaan: Y = '
-                    '${result.model.intercept.toStringAsFixed(4)} '
-                    '${result.model.slope >= 0 ? '+' : '-'} '
-                    '${result.model.slope.abs().toStringAsFixed(4)}X',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Trend: ${_trendLabel(result.model.slope)}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            buildSummaryBox(),
             pw.SizedBox(height: 12),
-            pw.TableHelper.fromTextArray(
-              border: pw.TableBorder.all(
-                color: PdfColors.grey400,
-                width: 0.5,
-              ),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.green700,
-              ),
-              headerStyle: pw.TextStyle(
-                color: PdfColors.white,
-                fontWeight: pw.FontWeight.bold,
-                fontSize: 8,
-              ),
-              cellStyle: const pw.TextStyle(
-                fontSize: 7.5,
-              ),
-              cellPadding: const pw.EdgeInsets.symmetric(
-                horizontal: 5,
-                vertical: 5,
-              ),
-              headers: const [
-                'Tanggal',
-                'Aktual',
-                'Prediksi',
-                'Error Absolut',
-                'Error Kuadrat',
-              ],
-              data: result.comparison.map(
-                (item) {
-                  return [
-                    _formatDate(
-                      item.date,
-                    ),
-                    '${item.actualQty}',
-                    '${item.predictedQty}',
-                    item.absoluteError.toStringAsFixed(2),
-                    item.squaredError.toStringAsFixed(2),
-                  ];
-                },
-              ).toList(),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(
-                  1.25,
-                ),
-                1: pw.FlexColumnWidth(1),
-                2: pw.FlexColumnWidth(1),
-                3: pw.FlexColumnWidth(
-                  1.25,
-                ),
-                4: pw.FlexColumnWidth(
-                  1.25,
-                ),
-              },
-            ),
-            pw.SizedBox(height: 12),
-            pw.Container(
-              width: double.infinity,
-              padding: const pw.EdgeInsets.all(
-                10,
-              ),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: pw.BorderRadius.circular(
-                  6,
-                ),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Ringkasan Hasil',
-                    style: pw.TextStyle(
-                      fontSize: 10,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 5),
-                  pw.Text(
-                    'Total aktual: ${result.actualTotal} ${_unit()}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Total prediksi: ${result.predictedTotal} ${_unit()}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Selisih total prediksi-aktual: '
-                    '${result.absoluteTotalDifference} ${_unit()}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Total error absolut: '
-                    '${result.totalAbsoluteError} ${_unit()}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'MAE: ${result.mae.toStringAsFixed(2)} ${_unit()}/hari',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'RMSE: ${result.rmse.toStringAsFixed(2)} ${_unit()}/hari',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.Text(
-                    'Persentase error (WAPE): '
-                    '${result.wape == null ? '-' : '${result.wape!.toStringAsFixed(2)}%'}',
-                    style: const pw.TextStyle(
-                      fontSize: 8.5,
-                    ),
-                  ),
-                  pw.SizedBox(height: 7),
-                  pw.Text(
-                    _errorInterpretation(
-                      result,
-                    ),
-                    style: const pw.TextStyle(
-                      fontSize: 7.5,
-                      lineSpacing: 2,
-                    ),
-                  ),
-                  pw.SizedBox(height: 7),
-                  pw.Container(
-                    width: double.infinity,
-                    padding: const pw.EdgeInsets.all(7),
-                    decoration: pw.BoxDecoration(
-                      color: PdfColors.white,
-                      border: pw.Border.all(
-                        color: PdfColors.grey300,
-                        width: 0.5,
-                      ),
-                      borderRadius: pw.BorderRadius.circular(4),
-                    ),
-                    child: pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text(
-                          'Rumus evaluasi:',
-                          style: pw.TextStyle(
-                            fontSize: 7.5,
-                            fontWeight: pw.FontWeight.bold,
-                          ),
-                        ),
-                        pw.SizedBox(height: 3),
-                        pw.Text(
-                          'MAE = (1/n) x jumlah |Aktual - Prediksi|',
-                          style: const pw.TextStyle(fontSize: 7),
-                        ),
-                        pw.Text(
-                          'RMSE = akar[(1/n) x jumlah (Aktual - Prediksi)^2]',
-                          style: const pw.TextStyle(fontSize: 7),
-                        ),
-                        pw.Text(
-                          'WAPE = (jumlah |Aktual - Prediksi| / jumlah Aktual) x 100%',
-                          style: const pw.TextStyle(fontSize: 7),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 10),
             pw.Text(
-              'Metode validasi menggunakan historical backtesting '
-              'dengan holdout 7 hari. Dataset penelitian 31 Januari '
-              'sampai 31 Juli 2026 dipisahkan menjadi data training '
-              '31 Januari sampai 24 Juli 2026 dan data validasi '
-              '25 Juli sampai 31 Juli 2026. Data validasi tidak '
-              'digunakan dalam pembentukan model.',
-              style: const pw.TextStyle(
-                fontSize: 7.5,
-                color: PdfColors.grey700,
+              'Ringkasan Window Pengujian',
+              style: pw.TextStyle(
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 6),
+            buildWindowSummaryTable(),
+            pw.SizedBox(height: 12),
+            buildOverallMetrics(),
+            ...detailWidgets,
+            pw.SizedBox(height: 12),
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.green50,
+                borderRadius: pw.BorderRadius.circular(4),
+              ),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    'Keterangan Metode',
+                    style: pw.TextStyle(
+                      fontSize: 8,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 3),
+                  pw.Text(
+                    'Setiap window memakai 6 bulan data historis '
+                    'sebagai training dan 7 hari berikutnya sebagai '
+                    'testing. Window bergeser 7 hari tanpa overlap. '
+                    'Tanggal maksimum data yang digunakan selalu '
+                    'mengikuti tanggal ketika halaman validasi dibuka. '
+                    'Transaksi dengan tanggal setelah tanggal tersebut '
+                    'tidak ikut dihitung.',
+                    style: const pw.TextStyle(
+                      fontSize: 7,
+                      lineSpacing: 1.7,
+                    ),
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    'MAE = (1/n) x jumlah |Aktual - Prediksi|',
+                    style: const pw.TextStyle(
+                      fontSize: 7,
+                    ),
+                  ),
+                  pw.Text(
+                    'RMSE = akar[(1/n) x jumlah '
+                    '(Aktual - Prediksi)^2]',
+                    style: const pw.TextStyle(
+                      fontSize: 7,
+                    ),
+                  ),
+                  pw.Text(
+                    'WAPE = (jumlah |Aktual - Prediksi| / '
+                    'jumlah Aktual) x 100%',
+                    style: const pw.TextStyle(
+                      fontSize: 7,
+                    ),
+                  ),
+                ],
               ),
             ),
           ];
@@ -831,7 +1249,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
   }
 
   Future<void> _generatePdf(
-    _ValidationResult result,
+    _RollingValidationResult result,
   ) async {
     if (_generatingPdf) {
       return;
@@ -843,7 +1261,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
 
     try {
       await Printing.layoutPdf(
-        name: 'validasi_regresi_abunawas.pdf',
+        name: 'validasi_rolling_regresi_abunawas.pdf',
         onLayout: (format) async {
           return _buildPdf(
             result,
@@ -976,115 +1394,12 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
     );
   }
 
-  Widget _buildFilterCard() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          'Pengaturan Validasi',
-          'Pilih produk yang akan diuji. Validasi menggunakan '
-              'historical backtesting dari dataset penelitian '
-              '31 Januari sampai 31 Juli 2026.',
-        ),
-        _card(
-          child: Column(
-            children: [
-              DropdownButtonFormField<String>(
-                value: _selectedProduct,
-                isExpanded: true,
-                decoration: _inputDecoration(
-                  'Produk / Merek Beras',
-                  Icons.inventory_2_outlined,
-                ),
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: _allProductsValue,
-                    child: Text(
-                      'Semua Merek',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  ..._products.map(
-                    (product) => DropdownMenuItem<String>(
-                      value: product.id,
-                      child: Text(
-                        product.name,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-
-                  setState(() {
-                    _selectedProduct = value;
-                  });
-
-                  _calculateValidation();
-                },
-              ),
-              const SizedBox(height: 14),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(
-                  13,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(
-                    0xFFF1F8F1,
-                  ),
-                  borderRadius: BorderRadius.circular(
-                    14,
-                  ),
-                  border: Border.all(
-                    color: const Color(
-                      0xFFC8E6C9,
-                    ),
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    _periodRow(
-                      'Dataset',
-                      '${_formatDate(_trainingStart)} - '
-                          '${_formatDate(_validationEnd)}',
-                    ),
-                    const Divider(
-                      height: 16,
-                    ),
-                    _periodRow(
-                      'Training',
-                      '${_formatDate(_trainingStart)} - '
-                          '${_formatDate(_trainingEnd)}',
-                    ),
-                    const Divider(
-                      height: 16,
-                    ),
-                    _periodRow(
-                      'Validasi',
-                      '${_formatDate(_validationStart)} - '
-                          '${_formatDate(_validationEnd)}',
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _periodRow(
     String label,
-    String period,
+    String value,
   ) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Icon(
           Icons.date_range_outlined,
@@ -1093,7 +1408,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
         ),
         const SizedBox(width: 10),
         SizedBox(
-          width: 78,
+          width: 100,
           child: Text(
             label,
             style: const TextStyle(
@@ -1105,7 +1420,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
         ),
         Expanded(
           child: Text(
-            period,
+            value,
             textAlign: TextAlign.right,
             style: const TextStyle(
               color: Color(0xFF015816),
@@ -1165,118 +1480,161 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
     );
   }
 
-  Widget _buildModelCard(
-    _ValidationResult result,
+  Widget _buildFilterCard(
+    _RollingValidationResult? result,
   ) {
-    final model = result.model;
-    final trendColor = _trendColor(model.slope);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle(
-          'Model yang Diuji',
-          'Model linear regression dibentuk hanya dari periode '
-              'training. Data validasi tidak ikut digunakan '
-              'dalam pembentukan persamaan.',
+          'Pengaturan Validasi',
+          'Metode rolling / walk-forward. Setiap window menggunakan '
+              '6 bulan training dan 7 hari testing. Tanggal maksimum '
+              'data mengikuti tanggal saat halaman ini dibuka.',
         ),
         _card(
           child: Column(
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: trendColor.withOpacity(
-                      0.13,
-                    ),
-                    child: Icon(
-                      Icons.show_chart_rounded,
-                      color: trendColor,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Persamaan Regresi',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(
-                          height: 3,
-                        ),
-                        Text(
-                          'Y = '
-                          '${model.intercept.toStringAsFixed(4)} '
-                          '${model.slope >= 0 ? '+' : '-'} '
-                          '${model.slope.abs().toStringAsFixed(4)}X',
-                          style: const TextStyle(
-                            color: Colors.black54,
-                            fontSize: 11.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: trendColor.withOpacity(
-                        0.12,
-                      ),
-                      borderRadius: BorderRadius.circular(
-                        99,
-                      ),
-                    ),
+              DropdownButtonFormField<String>(
+                value: _selectedProduct,
+                isExpanded: true,
+                decoration: _inputDecoration(
+                  'Produk / Merek Beras',
+                  Icons.inventory_2_outlined,
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: _allProductsValue,
                     child: Text(
-                      _trendLabel(
-                        model.slope,
-                      ),
+                      'Semua Merek',
                       style: TextStyle(
-                        color: trendColor,
-                        fontSize: 10.5,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
+                  ..._products.map(
+                    (product) => DropdownMenuItem<String>(
+                      value: product.id,
+                      child: Text(
+                        product.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
                 ],
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+
+                  setState(() {
+                    _selectedProduct = value;
+                  });
+
+                  _calculateRollingValidation();
+                },
               ),
               const SizedBox(height: 14),
-              _resultRow(
-                'Mode Analisis',
-                _analysisName(),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(
+                  13,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(
+                    0xFFF1F8F1,
+                  ),
+                  borderRadius: BorderRadius.circular(
+                    14,
+                  ),
+                  border: Border.all(
+                    color: const Color(
+                      0xFFC8E6C9,
+                    ),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    _periodRow(
+                      'Metode',
+                      'Rolling / Walk-Forward',
+                    ),
+                    const Divider(
+                      height: 16,
+                    ),
+                    _periodRow(
+                      'Maks. Data',
+                      _formatDate(
+                        _appOpenedDate,
+                      ),
+                    ),
+                    const Divider(
+                      height: 16,
+                    ),
+                    _periodRow(
+                      'Training',
+                      '6 bulan / window',
+                    ),
+                    const Divider(
+                      height: 16,
+                    ),
+                    _periodRow(
+                      'Testing',
+                      '7 hari / window',
+                    ),
+                    if (result != null) ...[
+                      const Divider(
+                        height: 16,
+                      ),
+                      _periodRow(
+                        'Window Aktif',
+                        '${result.windows.length} window',
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              _resultRow(
-                'Jumlah Data Training',
-                '${model.dataCount} hari',
-              ),
-              _resultRow(
-                'Hari Aktif Stok Keluar',
-                '${model.activeDays} hari',
-              ),
-              _resultRow(
-                'Total Stok Keluar Training',
-                '${model.totalQty} ${_unit()}',
-              ),
-              _resultRow(
-                'Rata-rata Training',
-                '${model.averageQty.toStringAsFixed(2)} '
-                    '${_unit()}/hari',
-              ),
-              _resultRow(
-                'Slope',
-                model.slope.toStringAsFixed(4),
-              ),
-              _resultRow(
-                'Intercept',
-                model.intercept.toStringAsFixed(4),
-                last: true,
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(
+                  12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(
+                    12,
+                  ),
+                  border: Border.all(
+                    color: Colors.amber.shade200,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.amber.shade800,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        'Transaksi bertanggal setelah '
+                        '${_formatDate(_appOpenedDate)} tidak digunakan. '
+                        'Karena hari ini ikut menjadi batas maksimum, '
+                        'pastikan data transaksi hari berjalan sudah '
+                        'lengkap bila hasil akan dipakai sebagai '
+                        'hasil pengujian laporan.',
+                        style: TextStyle(
+                          color: Colors.amber.shade900,
+                          fontSize: 10.5,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1285,27 +1643,35 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
     );
   }
 
-  Widget _buildMetricsCard(
-    _ValidationResult result,
+  Widget _buildOverallMetricsCard(
+    _RollingValidationResult result,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle(
-          'Hasil Validasi',
-          'Prediksi 7 hari dibandingkan dengan data stok keluar '
-              'aktual pada tanggal yang sama.',
+          'Hasil Keseluruhan',
+          'Nilai keseluruhan dihitung dari seluruh prediksi harian '
+              'pada semua window yang memenuhi syarat.',
         ),
         _card(
           child: Column(
             children: [
               _resultRow(
+                'Jumlah Window',
+                '${result.windows.length}',
+              ),
+              _resultRow(
+                'Total Hari Validasi',
+                '${result.totalValidationDays} hari',
+              ),
+              _resultRow(
                 'Total Aktual',
-                '${result.actualTotal} ${_unit()}',
+                '${result.totalActual} ${_unit()}',
               ),
               _resultRow(
                 'Total Prediksi',
-                '${result.predictedTotal} ${_unit()}',
+                '${result.totalPredicted} ${_unit()}',
               ),
               _resultRow(
                 'Selisih Total Prediksi-Aktual',
@@ -1313,23 +1679,23 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
               ),
               _resultRow(
                 'Total Error Absolut',
-                '${result.totalAbsoluteError} ${_unit()}',
+                '${result.totalAbsoluteError.toStringAsFixed(0)} ${_unit()}',
               ),
               _resultRow(
-                'MAE',
-                '${result.mae.toStringAsFixed(2)} '
+                'MAE Keseluruhan',
+                '${result.overallMae.toStringAsFixed(2)} '
                     '${_unit()}/hari',
               ),
               _resultRow(
-                'RMSE',
-                '${result.rmse.toStringAsFixed(2)} '
+                'RMSE Keseluruhan',
+                '${result.overallRmse.toStringAsFixed(2)} '
                     '${_unit()}/hari',
               ),
               _resultRow(
-                'Persentase Error (WAPE)',
-                result.wape == null
-                    ? '-'
-                    : '${result.wape!.toStringAsFixed(2)}%',
+                'WAPE Keseluruhan',
+                _wapeText(
+                  result.overallWape,
+                ),
                 last: true,
               ),
               const SizedBox(height: 14),
@@ -1347,13 +1713,13 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                   ),
                 ),
                 child: Text(
-                  _errorInterpretation(
+                  _overallInterpretation(
                     result,
                   ),
                   style: const TextStyle(
                     color: Colors.black54,
                     fontSize: 10.5,
-                    height: 1.4,
+                    height: 1.45,
                   ),
                 ),
               ),
@@ -1364,33 +1730,175 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
     );
   }
 
-  Widget _buildDailyComparisonCard(
-    _ValidationResult result,
+  Widget _buildWindowCard(
+    _WindowValidationResult window,
+    int index,
   ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle(
-          'Perbandingan Harian',
-          'Error harian = Aktual - Prediksi. |Error| digunakan '
-              'untuk MAE/WAPE dan Error² digunakan untuk RMSE.',
+    final trendColor = _trendColor(
+      window.model.slope,
+    );
+
+    return _card(
+      padding: const EdgeInsets.all(14),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(
+          top: 8,
         ),
-        _card(
-          padding: const EdgeInsets.all(12),
-          child: SingleChildScrollView(
+        title: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(
+                  0xFFE8F5E9,
+                ),
+                borderRadius: BorderRadius.circular(
+                  10,
+                ),
+              ),
+              child: Text(
+                '${index + 1}',
+                style: const TextStyle(
+                  color: Color(0xFF015816),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Window ${index + 1}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Testing '
+                    '${_formatDate(window.definition.testingStart)}'
+                    ' - '
+                    '${_formatDate(window.definition.testingEnd)}',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 9,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: trendColor.withOpacity(
+                  0.12,
+                ),
+                borderRadius: BorderRadius.circular(
+                  99,
+                ),
+              ),
+              child: Text(
+                _trendLabel(
+                  window.model.slope,
+                ),
+                style: TextStyle(
+                  color: trendColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(
+            top: 8,
+          ),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _metricChip(
+                'MAE',
+                window.mae.toStringAsFixed(2),
+              ),
+              _metricChip(
+                'RMSE',
+                window.rmse.toStringAsFixed(2),
+              ),
+              _metricChip(
+                'WAPE',
+                _wapeText(
+                  window.wape,
+                ),
+              ),
+            ],
+          ),
+        ),
+        children: [
+          const Divider(),
+          _resultRow(
+            'Training',
+            '${_formatDate(window.definition.trainingStart)} - '
+                '${_formatDate(window.definition.trainingEnd)}',
+          ),
+          _resultRow(
+            'Testing',
+            '${_formatDate(window.definition.testingStart)} - '
+                '${_formatDate(window.definition.testingEnd)}',
+          ),
+          _resultRow(
+            'Jumlah Data Training',
+            '${window.model.dataCount} hari',
+          ),
+          _resultRow(
+            'Hari Aktif Stok Keluar',
+            '${window.model.activeDays} hari',
+          ),
+          _resultRow(
+            'Persamaan',
+            'Y = '
+                '${window.model.intercept.toStringAsFixed(4)} '
+                '${window.model.slope >= 0 ? '+' : '-'} '
+                '${window.model.slope.abs().toStringAsFixed(4)}X',
+          ),
+          _resultRow(
+            'Total Aktual',
+            '${window.actualTotal} ${_unit()}',
+          ),
+          _resultRow(
+            'Total Prediksi',
+            '${window.predictedTotal} ${_unit()}',
+          ),
+          _resultRow(
+            'Total Error Absolut',
+            '${window.totalAbsoluteError.toStringAsFixed(0)} ${_unit()}',
+            last: true,
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: DataTable(
-              headingRowHeight: 42,
-              dataRowMinHeight: 44,
-              dataRowMaxHeight: 52,
-              horizontalMargin: 10,
-              columnSpacing: 18,
+              headingRowHeight: 40,
+              dataRowMinHeight: 42,
+              dataRowMaxHeight: 48,
+              horizontalMargin: 8,
+              columnSpacing: 16,
               columns: const [
                 DataColumn(
                   label: Text(
                     'Tanggal',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1400,7 +1908,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                   label: Text(
                     'Aktual',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1410,7 +1918,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                   label: Text(
                     'Prediksi',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1420,7 +1928,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                   label: Text(
                     '|Error|',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1430,13 +1938,13 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                   label: Text(
                     'Error²',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
               ],
-              rows: result.comparison
+              rows: window.comparison
                   .map(
                     (item) => DataRow(
                       cells: [
@@ -1446,7 +1954,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                               item.date,
                             ),
                             style: const TextStyle(
-                              fontSize: 10.5,
+                              fontSize: 10,
                             ),
                           ),
                         ),
@@ -1454,7 +1962,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                           Text(
                             '${item.actualQty}',
                             style: const TextStyle(
-                              fontSize: 10.5,
+                              fontSize: 10,
                             ),
                           ),
                         ),
@@ -1462,27 +1970,27 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                           Text(
                             '${item.predictedQty}',
                             style: const TextStyle(
-                              fontSize: 10.5,
+                              fontSize: 10,
                             ),
                           ),
                         ),
                         DataCell(
                           Text(
                             item.absoluteError.toStringAsFixed(
-                              2,
+                              0,
                             ),
                             style: const TextStyle(
-                              fontSize: 10.5,
+                              fontSize: 10,
                             ),
                           ),
                         ),
                         DataCell(
                           Text(
                             item.squaredError.toStringAsFixed(
-                              2,
+                              0,
                             ),
                             style: const TextStyle(
-                              fontSize: 10.5,
+                              fontSize: 10,
                             ),
                           ),
                         ),
@@ -1492,13 +2000,68 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                   .toList(),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricChip(
+    String label,
+    String value,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(
+          0xFFF2F7F2,
+        ),
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(
+          color: const Color(
+            0xFFD8E8D8,
+          ),
+        ),
+      ),
+      child: Text(
+        '$label $value',
+        style: const TextStyle(
+          color: Color(0xFF315A36),
+          fontSize: 9.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWindowsSection(
+    _RollingValidationResult result,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          'Window Pengujian',
+          'Window dibentuk otomatis berdasarkan tanggal aplikasi dan '
+              'ditampilkan secara kronologis dari periode terlama '
+              'hingga terbaru. Setiap window menggunakan 6 bulan '
+              'training dan 7 hari testing tanpa overlap.',
+        ),
+        ...List.generate(
+          result.windows.length,
+          (index) => _buildWindowCard(
+            result.windows[index],
+            index,
+          ),
         ),
       ],
     );
   }
 
   Widget _buildPdfButton(
-    _ValidationResult result,
+    _RollingValidationResult result,
   ) {
     return Container(
       width: double.infinity,
@@ -1558,7 +2121,7 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
               Text(
                 _generatingPdf
                     ? 'Membuat PDF...'
-                    : 'Generate PDF Hasil Validasi',
+                    : 'Generate PDF Validasi Rolling',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12.5,
@@ -1636,7 +2199,9 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildFilterCard(),
+                        _buildFilterCard(
+                          _result,
+                        ),
                         if (_errorMessage != null) ...[
                           const SizedBox(
                             height: 20,
@@ -1649,19 +2214,13 @@ class _RegressionValidationPageState extends State<RegressionValidationPage> {
                           const SizedBox(
                             height: 24,
                           ),
-                          _buildModelCard(
+                          _buildOverallMetricsCard(
                             _result!,
                           ),
                           const SizedBox(
                             height: 24,
                           ),
-                          _buildMetricsCard(
-                            _result!,
-                          ),
-                          const SizedBox(
-                            height: 24,
-                          ),
-                          _buildDailyComparisonCard(
+                          _buildWindowsSection(
                             _result!,
                           ),
                           const SizedBox(
@@ -1741,28 +2300,81 @@ class _ValidationDailyResult {
   });
 }
 
-class _ValidationResult {
+class _ValidationWindowDefinition {
+  final DateTime trainingStart;
+  final DateTime trainingEnd;
+  final DateTime testingStart;
+  final DateTime testingEnd;
+
+  const _ValidationWindowDefinition({
+    required this.trainingStart,
+    required this.trainingEnd,
+    required this.testingStart,
+    required this.testingEnd,
+  });
+}
+
+class _WindowValidationResult {
+  final _ValidationWindowDefinition definition;
   final _RegressionModel model;
   final List<_ValidationDailyResult> comparison;
+
   final double mae;
   final double rmse;
+
   final int actualTotal;
   final int predictedTotal;
-  final int totalDifference;
   final int absoluteTotalDifference;
-  final int totalAbsoluteError;
+
+  final double totalAbsoluteError;
+  final double totalSquaredError;
   final double? wape;
 
-  const _ValidationResult({
+  const _WindowValidationResult({
+    required this.definition,
     required this.model,
     required this.comparison,
     required this.mae,
     required this.rmse,
     required this.actualTotal,
     required this.predictedTotal,
-    required this.totalDifference,
     required this.absoluteTotalDifference,
     required this.totalAbsoluteError,
+    required this.totalSquaredError,
     required this.wape,
+  });
+}
+
+class _RollingValidationResult {
+  final List<_WindowValidationResult> windows;
+
+  final DateTime earliestDataDate;
+  final DateTime? latestTransactionDate;
+  final DateTime maxDataDate;
+
+  final int totalActual;
+  final int totalPredicted;
+  final int absoluteTotalDifference;
+
+  final double totalAbsoluteError;
+  final double overallMae;
+  final double overallRmse;
+  final double? overallWape;
+
+  final int totalValidationDays;
+
+  const _RollingValidationResult({
+    required this.windows,
+    required this.earliestDataDate,
+    required this.latestTransactionDate,
+    required this.maxDataDate,
+    required this.totalActual,
+    required this.totalPredicted,
+    required this.absoluteTotalDifference,
+    required this.totalAbsoluteError,
+    required this.overallMae,
+    required this.overallRmse,
+    required this.overallWape,
+    required this.totalValidationDays,
   });
 }

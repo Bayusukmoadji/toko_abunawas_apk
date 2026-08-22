@@ -28,6 +28,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
   late final DateTime _historyStart;
   late final DateTime _historyEnd;
   late final Stream<List<TransactionModel>> _transactionsStream;
+  late final Stream<List<TransactionModel>> _futureTransactionsStream;
 
   List<ProductModel> _products = [];
   String _selectedProduct = _allProductsValue;
@@ -51,6 +52,15 @@ class _StockTrendPageState extends State<StockTrendPage> {
         _transactionRepository.getTransactionsByDateRangeStream(
       startDate: _historyStart,
       endDate: _historyEnd,
+    );
+
+    // Digunakan untuk mengembalikan state stok Firestore ke posisi
+    // pada tanggal analisis. Ini penting jika database sudah berisi
+    // transaksi dengan tanggal setelah tanggal aplikasi dibuka.
+    _futureTransactionsStream =
+        _transactionRepository.getTransactionsByDateRangeStream(
+      startDate: _historyEnd.add(const Duration(days: 1)),
+      endDate: DateTime(2100, 12, 31),
     );
 
     _loadProducts();
@@ -130,15 +140,56 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return value.isEmpty ? 'Karung' : value;
   }
 
-  int _currentStock() {
+  int _stockForProductAsOf(
+    ProductModel product,
+    List<TransactionModel> futureTransactions,
+  ) {
+    var stock = product.totalStock;
+
+    for (final transaction in futureTransactions) {
+      if (transaction.productId != product.id) {
+        continue;
+      }
+
+      final type = transaction.type.trim().toLowerCase();
+
+      // products.totalStock merepresentasikan state Firestore terbaru.
+      // Untuk mendapatkan stok pada _historyEnd, semua transaksi setelah
+      // tanggal tersebut dibalik secara matematis:
+      //
+      // stock_in masa depan  -> dikurangi kembali
+      // stock_out masa depan -> ditambahkan kembali
+      if (type == 'stock_in') {
+        stock -= transaction.qty;
+      } else if (type == 'stock_out') {
+        stock += transaction.qty;
+      }
+    }
+
+    return math.max(0, stock);
+  }
+
+  int _currentStockAsOf(
+    List<TransactionModel> futureTransactions,
+  ) {
     if (_isAllProducts) {
       return _products.fold<int>(
         0,
-        (total, product) => total + product.totalStock,
+        (total, product) =>
+            total + _stockForProductAsOf(product, futureTransactions),
       );
     }
 
-    return _selectedProductModel()?.totalStock ?? 0;
+    final product = _selectedProductModel();
+
+    if (product == null) {
+      return 0;
+    }
+
+    return _stockForProductAsOf(
+      product,
+      futureTransactions,
+    );
   }
 
   String _dateKey(DateTime date) {
@@ -270,6 +321,30 @@ class _StockTrendPageState extends State<StockTrendPage> {
     final slope = (n * sumXY - sumX * sumY) / denominator;
     final intercept = (sumY - slope * sumX) / n;
 
+    final meanY = sumY / n;
+    double ssResidual = 0;
+    double ssTotal = 0;
+
+    for (var index = 0; index < n; index++) {
+      final x = index.toDouble();
+      final actual = data[index].qty.toDouble();
+      final fitted = intercept + slope * x;
+
+      final residual = actual - fitted;
+      final deviationFromMean = actual - meanY;
+
+      ssResidual += residual * residual;
+      ssTotal += deviationFromMean * deviationFromMean;
+    }
+
+    final double rSquared;
+
+    if (ssTotal == 0) {
+      rSquared = ssResidual == 0 ? 1.0 : 0.0;
+    } else {
+      rSquared = (1 - (ssResidual / ssTotal)).clamp(0.0, 1.0).toDouble();
+    }
+
     final predictions = <_PredictedStockOut>[];
     var predictionTotal = 0;
 
@@ -293,6 +368,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
     return _RegressionResult(
       slope: slope,
       intercept: intercept,
+      rSquared: rSquared,
       totalQty: series.totalQty,
       averageQty: series.totalQty / data.length,
       estimatedNext7Days: predictionTotal,
@@ -351,6 +427,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
   List<_ProductForecast> _productForecasts(
     List<TransactionModel> transactions,
+    List<TransactionModel> futureTransactions,
   ) {
     final forecasts = _products.map((product) {
       final series = _buildDailySeries(
@@ -360,14 +437,19 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
       final result = _calculateRegression(series);
       final estimated = result?.estimatedNext7Days ?? 0;
+      final stockAsOf = _stockForProductAsOf(
+        product,
+        futureTransactions,
+      );
 
       return _ProductForecast(
         product: product,
         activeDays: series.activeDays,
+        currentStockAsOf: stockAsOf,
         estimatedNeed: estimated,
         additionalNeed: math.max(
           0,
-          estimated - product.totalStock,
+          estimated - stockAsOf,
         ),
         hasEnoughData: result != null,
       );
@@ -540,52 +622,76 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
                 final transactions = snapshot.data ?? [];
 
-                final series = _buildDailySeries(
-                  transactions,
-                  productId: _isAllProducts ? null : _selectedProduct,
-                );
-
-                final regression = _calculateRegression(series);
-
-                return SafeArea(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      24,
-                      16,
-                      32,
-                    ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          maxWidth: 620,
+                return StreamBuilder<List<TransactionModel>>(
+                  stream: _futureTransactionsStream,
+                  builder: (context, futureSnapshot) {
+                    if (futureSnapshot.connectionState ==
+                            ConnectionState.waiting &&
+                        !futureSnapshot.hasData) {
+                      return const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFF038E1B),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _filterCard(),
-                            const SizedBox(height: 24),
-                            _analysisCard(
-                              series,
-                              regression,
+                      );
+                    }
+
+                    if (futureSnapshot.hasError) {
+                      return _futureStockErrorState(
+                        futureSnapshot.error,
+                      );
+                    }
+
+                    final futureTransactions = futureSnapshot.data ?? [];
+
+                    final series = _buildDailySeries(
+                      transactions,
+                      productId: _isAllProducts ? null : _selectedProduct,
+                    );
+
+                    final regression = _calculateRegression(series);
+
+                    return SafeArea(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(
+                          16,
+                          24,
+                          16,
+                          32,
+                        ),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              maxWidth: 620,
                             ),
-                            const SizedBox(height: 24),
-                            _trendChartCard(
-                              series,
-                              regression,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _filterCard(),
+                                const SizedBox(height: 24),
+                                _analysisCard(
+                                  series,
+                                  regression,
+                                ),
+                                const SizedBox(height: 24),
+                                _trendChartCard(
+                                  series,
+                                  regression,
+                                ),
+                                const SizedBox(height: 24),
+                                _predictionButton(
+                                  transactions,
+                                  futureTransactions,
+                                  regression,
+                                ),
+                                const SizedBox(height: 24),
+                                _dailyDataCard(series),
+                              ],
                             ),
-                            const SizedBox(height: 24),
-                            _predictionButton(
-                              transactions,
-                              regression,
-                            ),
-                            const SizedBox(height: 24),
-                            _dailyDataCard(series),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 );
               },
             ),
@@ -820,6 +926,34 @@ class _StockTrendPageState extends State<StockTrendPage> {
                 'Nilai Intercept',
                 regression.intercept.toStringAsFixed(4),
               ),
+              _resultRow(
+                'Koefisien Determinasi (R²)',
+                '${regression.rSquared.toStringAsFixed(4)} '
+                    '(${(regression.rSquared * 100).toStringAsFixed(2)}%)',
+              ),
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F8F1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFFC8E6C9),
+                  ),
+                ),
+                child: const Text(
+                  'R² menunjukkan proporsi variasi stok keluar yang dapat '
+                  'dijelaskan oleh model regresi linear terhadap waktu. '
+                  'Nilai R² bukan persentase akurasi prediksi.',
+                  style: TextStyle(
+                    color: Color(0xFF015816),
+                    fontSize: 10.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -1002,6 +1136,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
   Widget _predictionButton(
     List<TransactionModel> transactions,
+    List<TransactionModel> futureTransactions,
     _RegressionResult? regression,
   ) {
     final enabled = regression != null;
@@ -1037,6 +1172,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
                       ? () {
                           _showPredictionSheet(
                             transactions,
+                            futureTransactions,
                             regression,
                           );
                         }
@@ -1066,10 +1202,14 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
   void _showPredictionSheet(
     List<TransactionModel> transactions,
+    List<TransactionModel> futureTransactions,
     _RegressionResult regression,
   ) {
     final forecasts = _isAllProducts
-        ? _productForecasts(transactions)
+        ? _productForecasts(
+            transactions,
+            futureTransactions,
+          )
         : const <_ProductForecast>[];
 
     showModalBottomSheet<void>(
@@ -1141,7 +1281,10 @@ class _StockTrendPageState extends State<StockTrendPage> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  _predictionSummary(regression),
+                  _predictionSummary(
+                    regression,
+                    futureTransactions,
+                  ),
                   const SizedBox(height: 20),
                   _predictionChart(regression),
                   const SizedBox(height: 20),
@@ -1161,8 +1304,11 @@ class _StockTrendPageState extends State<StockTrendPage> {
 
   Widget _predictionSummary(
     _RegressionResult regression,
+    List<TransactionModel> futureTransactions,
   ) {
-    final current = _currentStock();
+    final current = _currentStockAsOf(
+      futureTransactions,
+    );
     final estimated = regression.estimatedNext7Days;
     final additional = math.max(
       0,
@@ -1214,7 +1360,7 @@ class _StockTrendPageState extends State<StockTrendPage> {
             _forecastPeriod(),
           ),
           _resultRow(
-            'Stok Saat Ini',
+            'Stok s.d. ${_formatDate(_historyEnd)}',
             '$current ${_unit()}',
           ),
           _resultRow(
@@ -1224,6 +1370,28 @@ class _StockTrendPageState extends State<StockTrendPage> {
           _resultRow(
             'Saran Tambahan',
             additional == 0 ? 'Tidak perlu' : '$additional ${_unit()}',
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F8F5),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFDCE8DC),
+              ),
+            ),
+            child: Text(
+              'Stok dihitung pada batas akhir histori '
+              '${_formatDate(_historyEnd)}. Transaksi setelah tanggal '
+              'tersebut tidak memengaruhi status dan saran prediksi.',
+              style: const TextStyle(
+                color: Colors.black54,
+                fontSize: 10,
+                height: 1.35,
+              ),
+            ),
           ),
         ],
       ),
@@ -1362,8 +1530,8 @@ class _StockTrendPageState extends State<StockTrendPage> {
                   '${forecast.activeDays} hari',
                 ),
                 _resultRow(
-                  'Stok Saat Ini',
-                  '${forecast.product.totalStock} $unit',
+                  'Stok s.d. ${_formatDate(_historyEnd)}',
+                  '${forecast.currentStockAsOf} $unit',
                 ),
                 _resultRow(
                   'Prediksi 7 Hari',
@@ -1731,6 +1899,23 @@ class _StockTrendPageState extends State<StockTrendPage> {
       ),
     );
   }
+
+  Widget _futureStockErrorState(Object? error) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'Gagal menghitung stok pada tanggal analisis: '
+          '${_cleanError(error)}',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.red.shade700,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _DailyStockOut {
@@ -1770,6 +1955,7 @@ class _PredictedStockOut {
 class _RegressionResult {
   final double slope;
   final double intercept;
+  final double rSquared;
   final int totalQty;
   final double averageQty;
   final int estimatedNext7Days;
@@ -1778,6 +1964,7 @@ class _RegressionResult {
   const _RegressionResult({
     required this.slope,
     required this.intercept,
+    required this.rSquared,
     required this.totalQty,
     required this.averageQty,
     required this.estimatedNext7Days,
@@ -1788,6 +1975,7 @@ class _RegressionResult {
 class _ProductForecast {
   final ProductModel product;
   final int activeDays;
+  final int currentStockAsOf;
   final int estimatedNeed;
   final int additionalNeed;
   final bool hasEnoughData;
@@ -1795,6 +1983,7 @@ class _ProductForecast {
   const _ProductForecast({
     required this.product,
     required this.activeDays,
+    required this.currentStockAsOf,
     required this.estimatedNeed,
     required this.additionalNeed,
     required this.hasEnoughData,
